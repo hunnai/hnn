@@ -1,0 +1,12 @@
+# Archivos locales y generados
+.gradle/
+.idea/
+**/build/
+.cxx/
+**/.cxx/
+local.properties
+*.iml
+*.jks
+*.keystore
+keystore.properties
+.env

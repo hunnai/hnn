@@ -1,0 +1,37 @@
+VALIDACION DEL PAQUETE SOINUBIDER XL
+
+Motor C original compilado con GCC, C11, -Wall -Wextra -Werror:
+PASS six banks record, mix and play; analysis contiguous; output bounded
+PASS pause, resume and selective erase
+PASS resize both directions and phase adjustment
+PASS completed loops and phase survive sample-rate reconfiguration
+PASS erase all
+PASS real FFT magnitude and invalid-size rejection
+
+Kotlin: compilacion de TODOS los archivos de app con Kotlin 2.2.20,
+plugin Compose 2.2.20 y dependencias Android (Compose 1.8.3, Material3 1.3.2,
+Activity 1.10.1 y Lifecycle 2.8.7). Salida: sin errores.
+No equivale a un assembleDebug con el SDK de Android y Gradle.
+
+Puente C++: comprobacion de sintaxis y tipos con g++ C++17, -Wall -Wextra
+-Werror, cabeceras oficiales Oboe 1.9.0 y JNI de OpenJDK 21. Sin errores.
+
+Pruebas JVM utilizando la FFT C real:
+
+PASS TAP: eight presses, 120 BPM, duplicate timestamp, pause and reset
+PASS AUTO synthetic 118.0 BPM -> 118.00082832075306
+PASS AUTO synthetic 120.0 BPM -> 119.99999329104841
+PASS AUTO synthetic 132.0 BPM -> 132.00297938847393
+PASS silence produces no BPM
+
+Interfaces JNI: nueve declaraciones Kotlin y nueve implementaciones C++ coincidentes.
+AndroidManifest.xml: XML valido. Motor C: identico al facilitado por el usuario.
+
+NO EJECUTADO AQUI:
+- Build completo Gradle / enlace NDK / generacion e instalacion del APK.
+- Instalador CMD en Windows (incluye copia y comprobacion antes de sustituir).
+- Microfono, salida, USB, latencia y foco de un dispositivo Android real.
+- Gestos de pantalla y funcionamiento completo de la interfaz en dispositivo.
+- Firma del APK y publicacion por enlace.
+
+AUTO en el microfono real/emulador sigue pendiente por decision del usuario.
