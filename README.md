@@ -6,7 +6,9 @@ Paquete integrado de código para el proyecto Android Studio `SoinuBiderXL` exis
 
 Pantalla principal adaptada a la referencia de iPhone: fondo oscuro, título centrado y engranaje, medidor de puntos, marco de BPM, AUTO/TAP, acciones, seis bancos grandes y flechas. La distribución se ajusta a la altura disponible.
 
-El audio intenta iniciarse al abrir la aplicación. **Iniciar audio**, **Detener**, el estado de la ruta y la ayuda están dentro de **Ajustes**, accesible con el engranaje. La barra de estado y la navegación son las propias de Android.
+El audio intenta iniciarse al abrir la aplicación. Todos los textos son blancos. **Ajustes** contiene el desfase actual, el guardado, sus botones de guardar/resetear y **Rango BPM Auto**. Se han retirado los controles de inicio/parada y las explicaciones. La barra de estado y la navegación son las propias de Android.
+
+Los dos desplegables muestran solo números, en pasos de 10: mínimo 85–155 y máximo 105–175. Están ligados con una diferencia **exacta de 20 BPM**: cambiar uno ajusta el otro. El rango se guarda y se aplica al detector AUTO; el valor inicial sigue siendo 115–135.
 
 ## Descargar e instalar en Windows
 

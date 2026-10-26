@@ -40,3 +40,21 @@ ACTUALIZACION DE APARIENCIA SEGUN REFERENCIA IPHONE
 Compilacion Kotlin y Compose de todos los archivos actualizados: correcta.
 Inicio automatico una vez por controlador; botones de audio y ayuda trasladados a Ajustes.
 Pendiente: comparacion visual y prueba del arranque en un dispositivo Android.
+
+ACTUALIZACION: TEXTOS BLANCOS Y RANGO AUTO CONFIGURABLE
+Todos los archivos Kotlin y Compose compilados correctamente.
+Rango exacto de 20 BPM, limites de los menus y 128 transiciones comprobados.
+Detector con busqueda y validacion ligadas a los limites elegidos.
+Normalizacion de ataques adaptada a ritmos lentos.
+PASS AUTO range: 128 transitions, limits and 20-BPM separation
+PASS TAP: eight presses, 120 BPM, duplicate timestamp, pause and reset
+PASS AUTO synthetic 118.0 BPM in 115..135 -> 118.00082832075306
+PASS AUTO synthetic 120.0 BPM in 115..135 -> 119.99999329104841
+PASS AUTO synthetic 132.0 BPM in 115..135 -> 132.00297938847393
+PASS AUTO synthetic 85.0 BPM in 85..105 -> 84.9999215362796
+PASS AUTO synthetic 90.0 BPM in 85..105 -> 89.99918560394619
+PASS AUTO synthetic 170.0 BPM in 155..175 -> 169.99864221457793
+PASS AUTO synthetic 175.0 BPM in 155..175 -> 175.00114443879227
+PASS AUTO synthetic 120.0 BPM in 105..125 -> 119.99999329104841
+PASS silence produces no BPM
+Persistencia en SharedPreferences implementada; prueba de restauracion y de menus en Android pendiente.

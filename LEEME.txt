@@ -52,14 +52,19 @@ APARIENCIA
 Pantalla principal adaptada a la referencia de iPhone: titulo y engranaje,
 medidor de 20 puntos, marco BPM con AUTO y TAP, Borrar beats y Reset BPM,
 seis bancos grandes en dos filas y flechas inferiores. Los controles de
-inicio/parada, el estado del audio y la ayuda estan en Ajustes.
+inicio/parada y las explicaciones se han retirado. Ajustes contiene los
+desfases, sus botones de guardar/resetear y el rango AUTO.
 
 FUNCIONES INTEGRADAS
 -------------------
 - Entrada y salida de audio mediante Oboe, permiso de microfono y foco.
 - Seis bancos de 1, 2, 4, 4, 8 y 16 beats con el motor C original.
 - TAP: ocho pulsaciones; reinicio tras pausa superior a tres segundos.
-- AUTO: detector original de 115 a 135 BPM, FFT C e hilo de analisis.
+- AUTO: rango configurable entre 85 y 175 BPM en pasos de 10, siempre
+  con diferencia EXACTA de 20 BPM entre minimo y maximo. Inicial: 115-135.
+  Minimos disponibles: 85, 95, 105, 115, 125, 135, 145, 155.
+  Maximos disponibles: 105, 115, 125, 135, 145, 155, 165, 175.
+  Al cambiar uno se ajusta el otro; los valores se guardan al elegirlos.
 - Grabacion sincronizada en TAP y AUTO, reproduccion y pausa.
 - Pulsacion corta de banco: menos de 350 ms.
 - Deslizar banco sonando fuera del borde superior/inferior: reducir o
@@ -82,7 +87,7 @@ FUNCIONES INTEGRADAS
 COMPROBACION EN ANDROID
 ----------------------
 1. Al abrir se inicia el audio automaticamente; concede permiso si se solicita.
-   Los controles Iniciar audio y Detener estan dentro de Ajustes (engranaje).
+   Los controles manuales de inicio y parada ya no aparecen en Ajustes.
 2. TAP ocho veces a ritmo constante y grabar dos bancos.
 3. Comprobar reproduccion conjunta, pausa y reanudacion.
 4. Probar deslizar arriba/abajo un banco que esta sonando.
@@ -90,13 +95,13 @@ COMPROBACION EN ANDROID
 6. Pausar un banco, mantenerlo y tocar Borrar beats.
 7. Mantener Borrar beats dos segundos para borrar todos.
 8. Abrir ajustes, guardar desfase, volver a abrir y comprobar el valor.
-9. En Ajustes, detener/reanudar audio y comprobar que conserva loops terminados.
+9. Salir al fondo y volver, comprobando que conserva los loops terminados.
 10. Probar salida al fondo y regreso.
 
 AUTO queda pendiente de validacion con tu microfono/tarjeta reales,
 segun lo acordado. Sus calculos pasan pruebas con audio sintetico, pero
 eso no comprueba la entrada del emulador. Reproducir un ritmo estable
-entre 115 y 135 BPM, sin saturacion, durante unos 20 segundos.
+dentro del rango elegido, sin saturacion, durante unos 20 segundos.
 La compatibilidad USB, latencia, gestos multitactiles, cambios de ruta
 y comportamiento de interrupciones requieren una prueba en Android real.
 Usar auriculares o una tarjeta externa para evitar realimentacion.

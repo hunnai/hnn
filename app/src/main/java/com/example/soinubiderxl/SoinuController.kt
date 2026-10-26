@@ -37,11 +37,26 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private val touching = mutableSetOf<Int>()
     private val suppressClick = mutableSetOf<Int>()
     private val actions = mutableSetOf<Action>()
-    var state by mutableStateOf(SoinuState(savedAdvanceMS = readSaved()))
+    var state by mutableStateOf(SoinuState(savedAdvanceMS = readSaved(), autoRange = readAutoRange()))
         private set
 
     private fun readSaved(): Double = preferences.getString("advanceMS", "0")
         ?.toDoubleOrNull()?.takeIf { it.isFinite() && abs(it) <= 2000 } ?: 0.0
+
+    private fun readAutoRange(): AutoBpmRange = runCatching {
+        AutoBpmRange(preferences.getInt("autoMinimum", 115), preferences.getInt("autoMaximum", 135))
+    }.getOrDefault(AutoBpmRange())
+
+    fun setAutoMinimum(value: Int) = updateAutoRange(state.autoRange.withMinimum(value))
+    fun setAutoMaximum(value: Int) = updateAutoRange(state.autoRange.withMaximum(value))
+
+    private fun updateAutoRange(range: AutoBpmRange) {
+        if (range == state.autoRange) return
+        preferences.edit().putInt("autoMinimum", range.minimum).putInt("autoMaximum", range.maximum).apply()
+        if (state.mode == TempoMode.AUTOMATIC) generation++
+        state = state.copy(autoRange = range,
+            tempo = if (state.mode == TempoMode.AUTOMATIC) null else state.tempo)
+    }
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -168,7 +183,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                         inputPeak = max(snapshot[2].toFloat(), state.inputPeak * .975f))
                     updateAdvance()
                     if (detectorGeneration != generation) {
-                        detector = if (state.mode == TempoMode.AUTOMATIC) BeatTracker(snapshot[0]) else null
+                        detector = if (state.mode == TempoMode.AUTOMATIC) BeatTracker(snapshot[0], state.autoRange) else null
                         detectorGeneration = generation
                     }
                     val packets = mutableListOf<Pair<Long, FloatArray>>()

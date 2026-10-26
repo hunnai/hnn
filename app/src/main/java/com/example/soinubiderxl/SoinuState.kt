@@ -8,6 +8,7 @@ data class LoopBankState(
 )
 data class SoinuState(
     val mode: TempoMode = TempoMode.AUTOMATIC,
+    val autoRange: AutoBpmRange = AutoBpmRange(),
     val tempo: TempoEstimate? = null,
     val banks: List<LoopBankState> = List(6) { LoopBankState() },
     val inputPeak: Float = 0f,

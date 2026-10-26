@@ -60,11 +60,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = SoinuConfiguration.lit,
+                onPrimary = SoinuConfiguration.foreground,
+                onPrimaryContainer = SoinuConfiguration.foreground,
+                onSurfaceVariant = SoinuConfiguration.foreground,
                 background = SoinuConfiguration.background,
                 surface = SoinuConfiguration.background,
                 onBackground = SoinuConfiguration.foreground,
                 onSurface = SoinuConfiguration.foreground
             )) {
+                CompositionLocalProvider(LocalContentColor provides SoinuConfiguration.foreground) {
                 val permission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { allowed ->
@@ -79,7 +83,8 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(controller) {
                     if (controller.claimInitialStart()) startAudio()
                 }
-                SoinuScreen(controller, startAudio)
+                SoinuScreen(controller)
+                }
             }
         }
     }
@@ -88,14 +93,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SoinuScreen(controller: SoinuController, start: () -> Unit) {
+private fun SoinuScreen(controller: SoinuController) {
     val state = controller.state
     var settings by rememberSaveable { mutableStateOf(false) }
     var touching by remember { mutableStateOf(setOf<Int>()) }
     BackHandler(enabled = settings) { settings = false }
     if (settings) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
-            controller::resetSavedAdvance, start, controller::stop)
+            controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum)
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().background(SoinuConfiguration.background).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
@@ -139,7 +144,7 @@ private fun SoinuScreen(controller: SoinuController, start: () -> Unit) {
     state.error?.let { message ->
         AlertDialog(onDismissRequest = controller::dismissError,
             title = { Text("SoinuBider XL") }, text = { Text(message) },
-            confirmButton = { TextButton(onClick = controller::dismissError) { Text("Aceptar") } })
+            confirmButton = { TextButton(onClick = controller::dismissError) { Text("Aceptar", color = SoinuConfiguration.foreground) } })
     }
 }
 
@@ -184,7 +189,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val selected = state.mode == TempoMode.AUTOMATIC
             Surface(color = if (selected) SoinuConfiguration.lit else SoinuConfiguration.control,
-                contentColor = if (selected) SoinuConfiguration.background else SoinuConfiguration.foreground,
+                contentColor = SoinuConfiguration.foreground,
                 shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight()
                     .clickable(role = Role.Button, onClick = controller::auto)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("AUTO", fontSize = (15 * scale).sp) }
@@ -200,7 +205,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
 @Composable
 private fun TapButton(selected: Boolean, controller: SoinuController, modifier: Modifier, textScale: Float) {
     Surface(color = if (selected) SoinuConfiguration.lit else SoinuConfiguration.control,
-        contentColor = if (selected) SoinuConfiguration.background else SoinuConfiguration.foreground,
+        contentColor = SoinuConfiguration.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier
             .semantics { role = Role.Button; onClick { controller.tap(SystemClock.uptimeMillis() / 1000.0); true } }
             .pointerInput(controller) {
@@ -233,7 +238,7 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
         else -> SoinuConfiguration.empty
     }
     Surface(color = if (pressed) SoinuConfiguration.lit else color,
-        contentColor = if (pressed) SoinuConfiguration.background else SoinuConfiguration.foreground,
+        contentColor = SoinuConfiguration.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier
             .semantics {
                 role = Role.Button
@@ -282,7 +287,7 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
     val scope = rememberCoroutineScope()
     var pressed by remember { mutableStateOf(false) }
     Surface(color = if (pressed) SoinuConfiguration.lit else SoinuConfiguration.control,
-        contentColor = if (pressed) SoinuConfiguration.background else SoinuConfiguration.foreground,
+        contentColor = SoinuConfiguration.foreground,
         shape = RoundedCornerShape(10.dp), modifier = modifier
             .semantics {
                 role = Role.Button
@@ -344,30 +349,66 @@ private fun InputMeter(peak: Float, modifier: Modifier) {
 }
 
 @Composable
-private fun SettingsScreen(state: SoinuState, close: () -> Unit, save: () -> Unit, reset: () -> Unit,
-    start: () -> Unit, stop: () -> Unit) {
+private fun SettingsScreen(
+    state: SoinuState,
+    close: () -> Unit,
+    save: () -> Unit,
+    reset: () -> Unit,
+    minimumChanged: (Int) -> Unit,
+    maximumChanged: (Int) -> Unit
+) {
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
+    val buttonColors = ButtonDefaults.buttonColors(
+        containerColor = SoinuConfiguration.control,
+        contentColor = SoinuConfiguration.foreground,
+        disabledContainerColor = SoinuConfiguration.empty,
+        disabledContentColor = SoinuConfiguration.foreground
+    )
     Column(Modifier.fillMaxSize().background(SoinuConfiguration.background).safeDrawingPadding()
         .verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Ajustes", Modifier.weight(1f), fontSize = 24.sp)
-            TextButton(onClick = close) { Text("Cerrar ✕") }
-        }
-        Text(state.route)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = start, enabled = !state.audioRunning) { Text("Iniciar audio") }
-            Button(onClick = stop, enabled = state.audioRunning) { Text("Detener") }
+            TextButton(onClick = close) { Text("Cerrar ✕", color = SoinuConfiguration.foreground) }
         }
         Text("Desfase actual: ${state.currentAdvanceMS?.let(::format) ?: "—"}", fontSize = 20.sp)
-        Button(onClick = save, enabled = state.currentAdvanceMS != null) { Text("Usar valor actual") }
+        Button(onClick = save, enabled = state.currentAdvanceMS != null, colors = buttonColors) { Text("Usar valor actual") }
         Text("Desfase guardado: ${format(state.savedAdvanceMS)}", fontSize = 20.sp)
-        Button(onClick = reset) { Text("Resetear valor") }
-        Text("El desfase guardado se aplica a las nuevas grabaciones. No es una medición automática de latencia.")
-        HorizontalDivider()
-        Text("Cómo usar los controles", fontSize = 20.sp)
-        Text("TAP necesita ocho pulsaciones. AUTO detecta entre 115 y 135 BPM.")
-        Text("Mantén Borrar beats dos segundos para borrar todo. Mantén un banco pausado y toca Borrar beats para borrar solo ese banco.")
-        Text("Mantén Reset BPM dos segundos para reiniciar el tempo. Las flechas se repiten al mantenerlas; con un banco sujeto ajustan solo ese banco.")
-        Text("Desliza un banco sonando por encima o por debajo de su borde para cambiar su duración.")
+        Button(onClick = reset, colors = buttonColors) { Text("Resetear valor") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Rango BPM Auto", Modifier.weight(1f), fontSize = 16.sp)
+            BpmDropdown(state.autoRange.minimum, AutoBpmRange.minimumOptions, "BPM mínimo", minimumChanged)
+            BpmDropdown(state.autoRange.maximum, AutoBpmRange.maximumOptions, "BPM máximo", maximumChanged)
+        }
+    }
+}
+
+@Composable
+private fun BpmDropdown(value: Int, options: List<Int>, description: String, changed: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Surface(color = SoinuConfiguration.control, contentColor = SoinuConfiguration.foreground,
+            shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp)
+                .semantics { contentDescription = description }
+                .clickable(role = Role.Button) { expanded = true }) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(value.toString(), color = SoinuConfiguration.foreground, fontSize = 16.sp)
+                Canvas(Modifier.size(8.dp, 5.dp)) {
+                    val triangle = Path().apply {
+                        moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2, size.height); close()
+                    }
+                    drawPath(triangle, SoinuConfiguration.foreground)
+                }
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { number ->
+                DropdownMenuItem(
+                    text = { Text(number.toString(), color = SoinuConfiguration.foreground) },
+                    onClick = { expanded = false; changed(number) }
+                )
+            }
+        }
     }
 }

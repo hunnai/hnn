@@ -7,7 +7,7 @@ object SoinuConfiguration {
     const val tapMinimumPresses = 8
     const val tapPauseSeconds = 3.0
     val background = Color(0xFF19171F)
-    val foreground = Color(0xFFF0EBF7)
+    val foreground = Color.White
     val control = Color(0xFF41364F)
     val empty = Color(0xFF302C39)
     val lit = Color(0xFFB08ADC)

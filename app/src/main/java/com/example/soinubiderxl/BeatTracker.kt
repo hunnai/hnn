@@ -3,7 +3,7 @@ package com.example.soinubiderxl
 import kotlin.math.*
 
 // Confinado a una cola de análisis. Mantiene el algoritmo original de iPhone.
-class BeatTracker(private val rate: Double) {
+class BeatTracker(private val rate: Double, private val range: AutoBpmRange = AutoBpmRange()) {
     private data class Event(val time: Double = 0.0, val value: Double = 0.0)
     private data class Fit(val bpm: Double, val anchor: Double, val coverage: Double, val uncertainty: Double)
     private val size: Int
@@ -81,7 +81,10 @@ class BeatTracker(private val rate: Double) {
             val edge = max(0, half - i) * flux.first() + max(0, i + half + 1 - count) * flux.last()
             max(0.0, flux[i] - (prefix[b] - prefix[a] + edge) / width)
         }
-        val scale = percentile(times.indices.filter { times[it] >= reference - 1.5 * rate }.map { envelope[it] }, .98)
+        // Los golpes espaciados ocupan menos del 2 % de las ventanas.
+        // Con el percentil original se confundían ritmos lentos con silencio.
+        val scalePercentile = if (range.minimum < 115) .99 else .98
+        val scale = percentile(times.indices.filter { times[it] >= reference - 1.5 * rate }.map { envelope[it] }, scalePercentile)
         if (scale < .02) { change = null; segmentStart = reference; return }
         val normalized = DoubleArray(count) { min(2.0, envelope[it] / scale) }
         val selected = mutableListOf<Int>()
@@ -127,8 +130,8 @@ class BeatTracker(private val rate: Double) {
         if (times[last] - times[first] < minimum * rate) return null
         val scores = mutableListOf<Double>(); val profiles = mutableListOf<DoubleArray>()
         val smoothing = DoubleArray(17) { exp(-.5 * ((it - 8) / 2.5).pow(2)) }
-        for (step in 0..80) {
-            val period = 60 * rate / (115 + step * .25)
+        for (step in 0..((range.maximum - range.minimum) * 4)) {
+            val period = 60 * rate / (range.minimum + step * .25)
             val histogram = DoubleArray(96)
             for (i in ids) {
                 val phase = (reference - times[i]) % period
@@ -142,7 +145,7 @@ class BeatTracker(private val rate: Double) {
         val score = scores.maxOrNull() ?: return null
         if (score < 1.6 * max(1e-9, percentile(scores, .5))) return null
         val best = scores.indexOf(score)
-        var period = 60 * rate / (115 + best * .25)
+        var period = 60 * rate / (range.minimum + best * .25)
         val profile = profiles[best]
         val bin = profile.indices.maxByOrNull { profile[it] } ?: return null
         var anchor = reference - (bin + .5) / 96 * period
@@ -185,7 +188,7 @@ class BeatTracker(private val rate: Double) {
         val bpm = 60 * rate / period
         val rms = sqrt(kept.sumOf { (y[it] - (anchor + period * x[it])).pow(2) } / kept.size)
         val coverage = kept.size.toDouble() / (x[b] - x[a] + 1)
-        if (bpm < 114.95 || bpm > 135.05 || rms > .025 * period || coverage < .65) return null
+        if (bpm < range.minimum - .05 || bpm > range.maximum + .05 || rms > .025 * period || coverage < .65) return null
         val spread = kept.sumOf { (x[it] - xm).pow(2) }
         val uncertainty = 60 * rate / (period * period) * rms / sqrt(max(1.0, spread))
         return Fit(bpm, anchor, coverage, uncertainty)
