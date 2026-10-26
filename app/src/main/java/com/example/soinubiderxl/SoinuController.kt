@@ -25,6 +25,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private val manager = application.getSystemService(AudioManager::class.java)
     private val tap = TapTempoEstimator()
     private var handle = 0L
+    private var initialStartClaimed = false
     private var visible = false
     private var wanted = false
     private var polling: Job? = null
@@ -63,6 +64,11 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     }
     init { manager.registerAudioDeviceCallback(devices, Handler(Looper.getMainLooper())) }
 
+    fun claimInitialStart(): Boolean {
+        if (initialStartClaimed) return false
+        initialStartClaimed = true
+        return true
+    }
     fun onVisible() {
         visible = true
         if (wanted && !state.audioRunning) start()

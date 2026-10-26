@@ -2,6 +2,12 @@
 
 Paquete integrado de código para el proyecto Android Studio `SoinuBiderXL` existente de Unai. Incluye motor C, conexión Oboe, seis bancos de loops, TAP, AUTO, controles de desfase, gestos y ajustes.
 
+## Apariencia
+
+Pantalla principal adaptada a la referencia de iPhone: fondo oscuro, título centrado y engranaje, medidor de puntos, marco de BPM, AUTO/TAP, acciones, seis bancos grandes y flechas. La distribución se ajusta a la altura disponible.
+
+El audio intenta iniciarse al abrir la aplicación. **Iniciar audio**, **Detener**, el estado de la ruta y la ayuda están dentro de **Ajustes**, accesible con el engranaje. La barra de estado y la navegación son las propias de Android.
+
 ## Descargar e instalar en Windows
 
 1. En esta página pulsa **Code → Download ZIP** y extrae todo el archivo.

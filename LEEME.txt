@@ -47,6 +47,13 @@ No modifica tus archivos raiz de Gradle, local.properties, iconos,
 almacenes de firma ni configuracion de Android Studio. El instalador
 requiere cerrar Android Studio para que ningun archivo este bloqueado.
 
+APARIENCIA
+----------
+Pantalla principal adaptada a la referencia de iPhone: titulo y engranaje,
+medidor de 20 puntos, marco BPM con AUTO y TAP, Borrar beats y Reset BPM,
+seis bancos grandes en dos filas y flechas inferiores. Los controles de
+inicio/parada, el estado del audio y la ayuda estan en Ajustes.
+
 FUNCIONES INTEGRADAS
 -------------------
 - Entrada y salida de audio mediante Oboe, permiso de microfono y foco.
@@ -74,7 +81,8 @@ FUNCIONES INTEGRADAS
 
 COMPROBACION EN ANDROID
 ----------------------
-1. Iniciar audio y conceder permiso si se solicita.
+1. Al abrir se inicia el audio automaticamente; concede permiso si se solicita.
+   Los controles Iniciar audio y Detener estan dentro de Ajustes (engranaje).
 2. TAP ocho veces a ritmo constante y grabar dos bancos.
 3. Comprobar reproduccion conjunta, pausa y reanudacion.
 4. Probar deslizar arriba/abajo un banco que esta sonando.
@@ -82,7 +90,7 @@ COMPROBACION EN ANDROID
 6. Pausar un banco, mantenerlo y tocar Borrar beats.
 7. Mantener Borrar beats dos segundos para borrar todos.
 8. Abrir ajustes, guardar desfase, volver a abrir y comprobar el valor.
-9. Detener/reanudar audio y comprobar que conserva loops terminados.
+9. En Ajustes, detener/reanudar audio y comprobar que conserva loops terminados.
 10. Probar salida al fondo y regreso.
 
 AUTO queda pendiente de validacion con tu microfono/tarjeta reales,

@@ -35,3 +35,8 @@ NO EJECUTADO AQUI:
 - Firma del APK y publicacion por enlace.
 
 AUTO en el microfono real/emulador sigue pendiente por decision del usuario.
+
+ACTUALIZACION DE APARIENCIA SEGUN REFERENCIA IPHONE
+Compilacion Kotlin y Compose de todos los archivos actualizados: correcta.
+Inicio automatico una vez por controlador; botones de audio y ayuda trasladados a Ajustes.
+Pendiente: comparacion visual y prueba del arranque en un dispositivo Android.
