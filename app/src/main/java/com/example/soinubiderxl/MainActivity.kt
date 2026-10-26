@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +21,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -58,17 +61,19 @@ class MainActivity : ComponentActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
+            val palette = controller.state.appearance.palette
+            CompositionLocalProvider(LocalSoinuPalette provides palette) {
             MaterialTheme(colorScheme = darkColorScheme(
-                primary = SoinuConfiguration.lit,
-                onPrimary = SoinuConfiguration.foreground,
-                onPrimaryContainer = SoinuConfiguration.foreground,
-                onSurfaceVariant = SoinuConfiguration.foreground,
-                background = SoinuConfiguration.background,
-                surface = SoinuConfiguration.background,
-                onBackground = SoinuConfiguration.foreground,
-                onSurface = SoinuConfiguration.foreground
+                primary = palette.lit,
+                onPrimary = palette.foreground,
+                onPrimaryContainer = palette.foreground,
+                onSurfaceVariant = palette.foreground,
+                background = palette.background,
+                surface = palette.background,
+                onBackground = palette.foreground,
+                onSurface = palette.foreground
             )) {
-                CompositionLocalProvider(LocalContentColor provides SoinuConfiguration.foreground) {
+                CompositionLocalProvider(LocalContentColor provides palette.foreground) {
                 val permission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { allowed ->
@@ -86,6 +91,7 @@ class MainActivity : ComponentActivity() {
                 SoinuScreen(controller)
                 }
             }
+            }
         }
     }
     override fun onStart() { super.onStart(); controller.onVisible() }
@@ -94,15 +100,17 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun SoinuScreen(controller: SoinuController) {
+    val palette = LocalSoinuPalette.current
     val state = controller.state
     var settings by rememberSaveable { mutableStateOf(false) }
     var touching by remember { mutableStateOf(setOf<Int>()) }
     BackHandler(enabled = settings) { settings = false }
     if (settings) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
-            controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum)
+            controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
+            controller::setAppearance)
     } else {
-        BoxWithConstraints(Modifier.fillMaxSize().background(SoinuConfiguration.background).safeDrawingPadding()) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
             // la pantalla en teléfonos pequeños y orientación horizontal.
             val contentHeight = maxOf(maxHeight, 520.dp)
@@ -144,12 +152,13 @@ private fun SoinuScreen(controller: SoinuController) {
     state.error?.let { message ->
         AlertDialog(onDismissRequest = controller::dismissError,
             title = { Text("SoinuBider XL") }, text = { Text(message) },
-            confirmButton = { TextButton(onClick = controller::dismissError) { Text("Aceptar", color = SoinuConfiguration.foreground) } })
+            confirmButton = { TextButton(onClick = controller::dismissError) { Text("Aceptar", color = palette.foreground) } })
     }
 }
 
 @Composable
 private fun GearButton(open: () -> Unit) {
+    val palette = LocalSoinuPalette.current
     Box(Modifier.size(44.dp).semantics { contentDescription = "Ajustes" }
         .clickable(role = Role.Button, onClick = open), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(27.dp)) {
@@ -165,19 +174,20 @@ private fun GearButton(open: () -> Unit) {
             }
             path.close()
             drawPath(path, Color(0xFF9B9C96))
-            drawCircle(SoinuConfiguration.background, radius * .39f, center)
+            drawCircle(palette.background, radius * .39f, center)
         }
     }
 }
 
 @Composable
 private fun TempoPanel(state: SoinuState, controller: SoinuController, height: Dp, scale: Float) {
+    val palette = LocalSoinuPalette.current
     Box(Modifier.fillMaxWidth().height(height)) {
         Canvas(Modifier.fillMaxSize()) {
             val top = 10.dp.toPx()
             val stroke = 1.dp.toPx()
             val captionGap = 50.dp.toPx()
-            val color = SoinuConfiguration.paused
+            val color = palette.paused
             drawLine(color, Offset(0f, top), Offset((size.width - captionGap) / 2, top), stroke)
             drawLine(color, Offset((size.width + captionGap) / 2, top), Offset(size.width, top), stroke)
             drawLine(color, Offset(stroke / 2, top), Offset(stroke / 2, size.height), stroke)
@@ -188,8 +198,8 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
         Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, top = 28.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val selected = state.mode == TempoMode.AUTOMATIC
-            Surface(color = if (selected) SoinuConfiguration.lit else SoinuConfiguration.control,
-                contentColor = SoinuConfiguration.foreground,
+            Surface(color = if (selected) palette.lit else palette.control,
+                contentColor = palette.foreground,
                 shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight()
                     .clickable(role = Role.Button, onClick = controller::auto)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("AUTO", fontSize = (15 * scale).sp) }
@@ -204,8 +214,9 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
 
 @Composable
 private fun TapButton(selected: Boolean, controller: SoinuController, modifier: Modifier, textScale: Float) {
-    Surface(color = if (selected) SoinuConfiguration.lit else SoinuConfiguration.control,
-        contentColor = SoinuConfiguration.foreground,
+    val palette = LocalSoinuPalette.current
+    Surface(color = if (selected) palette.lit else palette.control,
+        contentColor = palette.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier
             .semantics { role = Role.Button; onClick { controller.tap(SystemClock.uptimeMillis() / 1000.0); true } }
             .pointerInput(controller) {
@@ -225,6 +236,7 @@ private fun TapButton(selected: Boolean, controller: SoinuController, modifier: 
 
 @Composable
 private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier, textScale: Float, touching: (Boolean) -> Unit) {
+    val palette = LocalSoinuPalette.current
     val state = controller.state
     val bank = state.banks[index]
     var pressed by remember { mutableStateOf(false) }
@@ -232,13 +244,13 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
     val duration = SoinuConfiguration.beats[index] / 2.0.pow(bank.divisions)
     val label = if (duration >= 1) "${duration.toInt()} beats" else "1/${(1 / duration).roundToInt()} beat"
     val color = when (bank.state) {
-        1, 2 -> SoinuConfiguration.recording
-        3 -> SoinuConfiguration.playing
-        4 -> SoinuConfiguration.paused
-        else -> SoinuConfiguration.empty
+        1, 2 -> palette.recording
+        3 -> palette.playing
+        4 -> palette.paused
+        else -> palette.empty
     }
-    Surface(color = if (pressed) SoinuConfiguration.lit else color,
-        contentColor = SoinuConfiguration.foreground,
+    Surface(color = if (pressed) palette.lit else color,
+        contentColor = palette.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier
             .semantics {
                 role = Role.Button
@@ -284,10 +296,11 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
 
 @Composable
 private fun ActionButton(label: String, kind: String, controller: SoinuController, modifier: Modifier, enabled: Boolean = true, textScale: Float = 1f) {
+    val palette = LocalSoinuPalette.current
     val scope = rememberCoroutineScope()
     var pressed by remember { mutableStateOf(false) }
-    Surface(color = if (pressed) SoinuConfiguration.lit else SoinuConfiguration.control,
-        contentColor = SoinuConfiguration.foreground,
+    Surface(color = if (pressed) palette.lit else palette.control,
+        contentColor = palette.foreground,
         shape = RoundedCornerShape(10.dp), modifier = modifier
             .semantics {
                 role = Role.Button
@@ -355,20 +368,22 @@ private fun SettingsScreen(
     save: () -> Unit,
     reset: () -> Unit,
     minimumChanged: (Int) -> Unit,
-    maximumChanged: (Int) -> Unit
+    maximumChanged: (Int) -> Unit,
+    appearanceChanged: (Appearance) -> Unit
 ) {
+    val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
     val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = SoinuConfiguration.control,
-        contentColor = SoinuConfiguration.foreground,
-        disabledContainerColor = SoinuConfiguration.empty,
-        disabledContentColor = SoinuConfiguration.foreground
+        containerColor = palette.control,
+        contentColor = palette.foreground,
+        disabledContainerColor = palette.empty,
+        disabledContentColor = palette.foreground
     )
-    Column(Modifier.fillMaxSize().background(SoinuConfiguration.background).safeDrawingPadding()
+    Column(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding()
         .verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Ajustes", Modifier.weight(1f), fontSize = 24.sp)
-            TextButton(onClick = close) { Text("Cerrar ✕", color = SoinuConfiguration.foreground) }
+            TextButton(onClick = close) { Text("Cerrar ✕", color = palette.foreground) }
         }
         Text("Desfase actual: ${state.currentAdvanceMS?.let(::format) ?: "—"}", fontSize = 20.sp)
         Button(onClick = save, enabled = state.currentAdvanceMS != null, colors = buttonColors) { Text("Usar valor actual") }
@@ -380,34 +395,69 @@ private fun SettingsScreen(
             BpmDropdown(state.autoRange.minimum, AutoBpmRange.minimumOptions, "BPM mínimo", minimumChanged)
             BpmDropdown(state.autoRange.maximum, AutoBpmRange.maximumOptions, "BPM máximo", maximumChanged)
         }
+        AppearanceSelector(state.appearance, appearanceChanged)
     }
 }
 
 @Composable
 private fun BpmDropdown(value: Int, options: List<Int>, description: String, changed: (Int) -> Unit) {
+    val palette = LocalSoinuPalette.current
     var expanded by remember { mutableStateOf(false) }
     Box {
-        Surface(color = SoinuConfiguration.control, contentColor = SoinuConfiguration.foreground,
+        Surface(color = palette.control, contentColor = palette.foreground,
             shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp)
                 .semantics { contentDescription = description }
                 .clickable(role = Role.Button) { expanded = true }) {
             Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(value.toString(), color = SoinuConfiguration.foreground, fontSize = 16.sp)
+                Text(value.toString(), color = palette.foreground, fontSize = 16.sp)
                 Canvas(Modifier.size(8.dp, 5.dp)) {
                     val triangle = Path().apply {
                         moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2, size.height); close()
                     }
-                    drawPath(triangle, SoinuConfiguration.foreground)
+                    drawPath(triangle, palette.foreground)
                 }
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { number ->
                 DropdownMenuItem(
-                    text = { Text(number.toString(), color = SoinuConfiguration.foreground) },
+                    text = { Text(number.toString(), color = palette.foreground) },
                     onClick = { expanded = false; changed(number) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Unit) {
+    val palette = LocalSoinuPalette.current
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Apariencia", color = palette.foreground, fontSize = 18.sp)
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Appearance.entries.forEach { appearance ->
+                val active = appearance == selected
+                Surface(
+                    color = palette.control,
+                    contentColor = palette.foreground,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(if (active) 2.dp else 1.dp,
+                        if (active) palette.foreground else palette.paused),
+                    modifier = Modifier.weight(1f)
+                        .selectable(selected = active, role = Role.RadioButton,
+                            onClick = { changed(appearance) })
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(Modifier.fillMaxWidth().height(52.dp)) {
+                            appearance.palette.previewStripes.forEach { color ->
+                                Box(Modifier.weight(1f).fillMaxHeight().background(color))
+                            }
+                        }
+                        Text(appearance.title, Modifier.padding(vertical = 8.dp),
+                            color = palette.foreground, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
             }
         }
     }

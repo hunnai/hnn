@@ -10,6 +10,8 @@ El audio intenta iniciarse al abrir la aplicación. Todos los textos son blancos
 
 Los dos desplegables muestran solo números, en pasos de 10: mínimo 85–155 y máximo 105–175. Están ligados con una diferencia **exacta de 20 BPM**: cambiar uno ajusta el otro. El rango se guarda y se aplica al detector AUTO; el valor inicial sigue siendo 115–135.
 
+Debajo aparece **Apariencia**, con cuatro botones en una fila: **Violeta**, **Azul**, **Ámbar** y **Gris**. Cada botón muestra franjas verticales con su paleta, y un borde blanco identifica la selección. El cambio se aplica inmediatamente a ambas pantallas y se guarda para la siguiente apertura. Los textos permanecen blancos y los LED conservan verde, ámbar y rojo. Se mantiene separación respecto al rango AUTO y los desfases.
+
 ## Descargar e instalar en Windows
 
 1. En esta página pulsa **Code → Download ZIP** y extrae todo el archivo.

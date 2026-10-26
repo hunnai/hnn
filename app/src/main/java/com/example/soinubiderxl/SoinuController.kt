@@ -37,11 +37,22 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private val touching = mutableSetOf<Int>()
     private val suppressClick = mutableSetOf<Int>()
     private val actions = mutableSetOf<Action>()
-    var state by mutableStateOf(SoinuState(savedAdvanceMS = readSaved(), autoRange = readAutoRange()))
+    var state by mutableStateOf(SoinuState(savedAdvanceMS = readSaved(), autoRange = readAutoRange(),
+        appearance = readAppearance()))
         private set
 
     private fun readSaved(): Double = preferences.getString("advanceMS", "0")
         ?.toDoubleOrNull()?.takeIf { it.isFinite() && abs(it) <= 2000 } ?: 0.0
+
+    private fun readAppearance(): Appearance = runCatching {
+        Appearance.fromPreference(preferences.getString("appearance", null))
+    }.getOrDefault(Appearance.VIOLET)
+
+    fun setAppearance(appearance: Appearance) {
+        if (appearance == state.appearance) return
+        preferences.edit().putString("appearance", appearance.preference).apply()
+        state = state.copy(appearance = appearance)
+    }
 
     private fun readAutoRange(): AutoBpmRange = runCatching {
         AutoBpmRange(preferences.getInt("autoMinimum", 115), preferences.getInt("autoMaximum", 135))

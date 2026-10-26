@@ -53,7 +53,12 @@ Pantalla principal adaptada a la referencia de iPhone: titulo y engranaje,
 medidor de 20 puntos, marco BPM con AUTO y TAP, Borrar beats y Reset BPM,
 seis bancos grandes en dos filas y flechas inferiores. Los controles de
 inicio/parada y las explicaciones se han retirado. Ajustes contiene los
-desfases, sus botones de guardar/resetear y el rango AUTO.
+desfases, sus botones de guardar/resetear, el rango AUTO y Apariencia.
+Debajo del rango AUTO hay cuatro botones en una fila: Violeta, Azul,
+Ambar y Gris. Cada boton muestra franjas verticales de su paleta.
+El borde blanco marca la seleccion. El cambio se aplica inmediatamente
+a ambas pantallas y se guarda para futuras aperturas. Los textos siguen
+blancos y los LED mantienen verde, ambar y rojo.
 
 FUNCIONES INTEGRADAS
 -------------------
@@ -95,6 +100,9 @@ COMPROBACION EN ANDROID
 6. Pausar un banco, mantenerlo y tocar Borrar beats.
 7. Mantener Borrar beats dos segundos para borrar todos.
 8. Abrir ajustes, guardar desfase, volver a abrir y comprobar el valor.
+   Elegir cada apariencia y comprobar que cambia Ajustes y la pantalla
+   principal. Volver a abrir la app para comprobar que conserva la elegida.
+   Comprobar que los LED no cambian de paleta.
 9. Salir al fondo y volver, comprobando que conserva los loops terminados.
 10. Probar salida al fondo y regreso.
 

@@ -58,3 +58,11 @@ PASS AUTO synthetic 175.0 BPM in 155..175 -> 175.00114443879227
 PASS AUTO synthetic 120.0 BPM in 105..125 -> 119.99999329104841
 PASS silence produces no BPM
 Persistencia en SharedPreferences implementada; prueba de restauracion y de menus en Android pendiente.
+
+ACTUALIZACION: CUATRO APARIENCIAS CON VISTA PREVIA
+Todos los archivos Kotlin y Compose compilados correctamente.
+Violeta conserva los valores anteriores; Azul, Ambar y Gris anaden paletas inmutables.
+Ambas pantallas reciben la misma paleta reactiva; el selector guarda la preferencia.
+La eleccion modifica solo la apariencia, sin llamadas JNI ni reinicio del audio.
+El codigo del medidor LED mantiene sus colores fijos y no usa la paleta.
+Pendiente: comprobacion visual, seleccion y restauracion de preferencias en Android real.
