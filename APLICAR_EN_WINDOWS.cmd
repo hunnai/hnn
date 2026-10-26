@@ -15,6 +15,7 @@ if not exist "%PROYECTO%\gradlew.bat" goto ruta_error
 if not exist "%PROYECTO%\app\build.gradle.kts" goto ruta_error
 if not exist "%PAQUETE%app\src\main\cpp\SBAudioAndroid.cpp" goto paquete_error
 if not exist "%PAQUETE%app\src\main\java\com\example\soinubiderxl\MainActivity.kt" goto paquete_error
+if not exist "%PAQUETE%app\src\main\res\drawable-nodpi\soinu_launcher_face.png" goto paquete_error
 set "BACKUP=%PROYECTO%-copia-soinu-%RANDOM%-%RANDOM%"
 if exist "%BACKUP%" goto copia_error
 mkdir "%BACKUP%" >nul 2>&1
@@ -26,6 +27,9 @@ if errorlevel 1 goto copia_error
 call :copia_archivo "%PROYECTO%\app\src\main\AndroidManifest.xml" "%BACKUP%\app\src\main\AndroidManifest.xml"
 if errorlevel 1 goto copia_error
 call :copia_archivo "%PROYECTO%\app\build.gradle.kts" "%BACKUP%\app\build.gradle.kts"
+if errorlevel 1 goto copia_error
+
+call :copia_carpeta "%PROYECTO%\app\src\main\res" "%BACKUP%\app\src\main\res"
 if errorlevel 1 goto copia_error
 
 echo Copia de seguridad verificada. Instalando...
@@ -42,6 +46,8 @@ if errorlevel 1 goto instalacion_error
 call :copia_archivo "%PAQUETE%app\build.gradle.kts" "%PROYECTO%\app\build.gradle.kts"
 if errorlevel 1 goto instalacion_error
 echo.
+call :mezcla_recursos "%PAQUETE%app\src\main\res" "%PROYECTO%\app\src\main\res"
+if errorlevel 1 goto instalacion_error
 echo Archivos instalados correctamente.
 echo Copia anterior: "%BACKUP%"
 echo Abre tu proyecto habitual en Android Studio, sincroniza y ejecuta Build.
@@ -54,6 +60,14 @@ if not exist "%~1" exit /b 0
 robocopy "%~1" "%~2" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
 if errorlevel 8 exit /b 1
 robocopy "%~1" "%~2" /E /L /R:0 /W:0 /NFL /NDL /NJH /NJS >nul
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:mezcla_recursos
+if not exist "%~1" exit /b 1
+robocopy "%~1" "%~2" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
+if errorlevel 8 exit /b 1
+robocopy "%~1" "%~2" /E /L /XX /R:0 /W:0 /NFL /NDL /NJH /NJS >nul
 if errorlevel 1 exit /b 1
 exit /b 0
 

@@ -5,7 +5,8 @@
     <application
         android:allowBackup="false"
         android:label="SoinuBider XL"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/soinu_launcher"
+        android:roundIcon="@mipmap/soinu_launcher_round"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">

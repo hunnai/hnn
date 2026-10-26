@@ -5,7 +5,7 @@ No hay que buscar lineas ni pegar fragmentos de codigo.
 Este paquete reemplaza los archivos de la aplicacion en el proyecto
 SoinuBiderXL que ya tienes funcionando en Windows. No es un APK ni un
 proyecto independiente: conserva tus herramientas, catalogo de versiones,
-Gradle Wrapper e iconos existentes.
+Gradle Wrapper y los recursos existentes; anade el icono personalizado.
 
 INSTALACION
 -----------
@@ -16,7 +16,7 @@ INSTALACION
    C:\Users\unai_\AndroidStudioProjects\SoinuBiderXL
 4. El programa guarda y verifica una copia de los archivos anteriores
    en una carpeta al lado del proyecto. Muestra su ruta al terminar.
-   Despues sustituye los cuatro elementos indicados mas abajo.
+   Despues sustituye los archivos indicados mas abajo y anade el icono.
 5. Abre tu proyecto habitual en Android Studio, sincroniza Gradle y
    ejecuta Build. Despues pulsa Run (triangulo verde).
 
@@ -42,10 +42,22 @@ ARCHIVOS QUE SUSTITUYE EL INSTALADOR
 - app\src\main\cpp (carpeta completa)
 - app\src\main\AndroidManifest.xml
 - app\build.gradle.kts
+- app\src\main\res (anade o actualiza solo los recursos del paquete;
+  no borra los demas recursos existentes y antes hace copia completa)
 
-No modifica tus archivos raiz de Gradle, local.properties, iconos,
-almacenes de firma ni configuracion de Android Studio. El instalador
+No modifica tus archivos raiz de Gradle, local.properties, almacenes
+de firma ni configuracion de Android Studio. Conserva los recursos
+originales y anade archivos con nombres propios para el icono. El instalador
 requiere cerrar Android Studio para que ningun archivo este bloqueado.
+
+ICONO
+-----
+La imagen del rostro tiene transparencia y no conserva el fondo negro.
+El icono adaptable de Android utiliza una base gris muy clara y deja
+margen para las mascaras circulares o cuadradas. El PNG recortado esta en:
+app\src\main\res\drawable-nodpi\soinu_launcher_face.png
+Los recursos usan nombres soinu_launcher para evitar duplicados con los
+ic_launcher originales. El manifiesto ya selecciona el nuevo icono.
 
 APARIENCIA
 ----------
@@ -134,8 +146,11 @@ La firma y la publicacion por enlace aun no se han realizado.
 
 PARA DESHACER LA INSTALACION
 --------------------------
-La copia automatica contiene los mismos cuatro elementos con sus rutas
+La copia automatica contiene los archivos y recursos anteriores con sus rutas
 originales bajo app. Cierra Android Studio, elimina las dos carpetas
 instaladas indicadas arriba y copia app desde la copia de seguridad sobre
 tu proyecto. Si alguno de esos elementos no existia antes, no estara en
 la copia y debera quedar eliminado al deshacer.
+
+Para restaurar tambien los recursos originales, sustituye app\src\main\res
+por la carpeta res de la copia de seguridad, con Android Studio cerrado.

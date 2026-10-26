@@ -12,6 +12,14 @@ Los dos desplegables muestran solo números, en pasos de 10: mínimo 85–155 y 
 
 Debajo aparece **Apariencia**, con cuatro botones en una fila: **Violeta**, **Azul**, **Ámbar** y **Gris**. Cada botón muestra franjas verticales con su paleta, y un borde blanco identifica la selección. El cambio se aplica inmediatamente a ambas pantallas y se guarda para la siguiente apertura. Los textos permanecen blancos y los LED conservan verde, ámbar y rojo. Se mantiene separación respecto al rango AUTO y los desfases.
 
+## Icono de la aplicación
+
+<img src="app/src/main/res/drawable-nodpi/soinu_launcher_face.png" width="128" alt="Rostro recortado para el icono de SoinuBider XL" />
+
+El rostro proporcionado se ha recortado con transparencia, sin el fondo negro. El icono adaptable de Android lo coloca sobre una base gris muy clara y deja margen para las máscaras circulares o cuadradas. El PNG recortado está en `app/src/main/res/drawable-nodpi/soinu_launcher_face.png`.
+
+El instalador añade los recursos `soinu_launcher*` y hace copia de los recursos anteriores. Los iconos originales del proyecto se conservan, aunque el manifiesto utiliza ahora el icono personalizado.
+
 ## Descargar e instalar en Windows
 
 1. En esta página pulsa **Code → Download ZIP** y extrae todo el archivo.
@@ -24,7 +32,7 @@ Debajo aparece **Apariencia**, con cuatro botones en una fila: **Violeta**, **Az
 
 También puedes descargar el [paquete ZIP original](https://github.com/hunnai/hnn/raw/refs/heads/main/SoinuBiderXL-archivos-completos.zip).
 
-**Este repositorio contiene archivos para aplicar al proyecto existente. No se abre como un proyecto Android independiente y no contiene un APK.** Conserva el Gradle Wrapper, el catálogo de versiones, los iconos y las herramientas de tu proyecto actual.
+**Este repositorio contiene archivos para aplicar al proyecto existente. No se abre como un proyecto Android independiente y no contiene un APK.** Conserva el Gradle Wrapper, el catálogo de versiones y las herramientas de tu proyecto actual; añade los recursos del icono personalizado.
 
 Consulta [LEEME.txt](LEEME.txt) para la instalación manual, los gestos, las pruebas y cómo restaurar la copia de seguridad.
 

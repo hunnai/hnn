@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El rostro completo queda dentro de la zona segura del icono adaptable. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="18.5%">
+    <bitmap
+        android:src="@drawable/soinu_launcher_face"
+        android:gravity="fill"
+        android:filter="true" />
+</inset>

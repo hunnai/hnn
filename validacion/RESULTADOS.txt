@@ -66,3 +66,12 @@ Ambas pantallas reciben la misma paleta reactiva; el selector guarda la preferen
 La eleccion modifica solo la apariencia, sin llamadas JNI ni reinicio del audio.
 El codigo del medidor LED mantiene sus colores fijos y no usa la paleta.
 Pendiente: comprobacion visual, seleccion y restauracion de preferencias en Android real.
+
+ACTUALIZACION: ICONO PERSONALIZADO
+Imagen recortada mediante la herramienta de imagen, con canal alfa.
+PNG fuente preservado sin cambios en drawable-nodpi.
+Recursos compilados correctamente con AAPT2 8.10.1-12782657 (7 entradas).
+XML y referencias del manifiesto comprobados para icono normal y redondo.
+Icono adaptable con base gris clara y margen de 18,5 % para la cara.
+Instalador actualizado para copiar y respaldar los recursos; no ejecutado en Windows.
+Pendiente: comprobar el resultado en el lanzador de un dispositivo Android real.
