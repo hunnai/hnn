@@ -115,7 +115,7 @@ private fun SoinuScreen(controller: SoinuController) {
             controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
             controller::setAppearance)
     } else {
-        BoxWithConstraints(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding()) {
+        BoxWithConstraints(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
             // la pantalla en teléfonos pequeños y orientación horizontal.
             val contentHeight = maxOf(maxHeight, 520.dp)
@@ -404,7 +404,7 @@ private fun SettingsScreen(
         disabledContainerColor = palette.empty,
         disabledContentColor = palette.foreground
     )
-    Column(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding()
+    Column(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()
         .verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Ajustes", Modifier.weight(1f), fontSize = 24.sp)
@@ -460,30 +460,38 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
     val palette = LocalSoinuPalette.current
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Apariencia", color = palette.foreground, fontSize = 18.sp)
-        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Appearance.entries.forEach { appearance ->
-                val active = appearance == selected
-                Surface(
-                    color = palette.control,
-                    contentColor = palette.foreground,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(if (active) 2.dp else 1.dp,
-                        if (active) palette.foreground else palette.paused),
-                    modifier = Modifier.weight(1f).buttonDepth(8.dp)
-                        .selectable(selected = active, role = Role.RadioButton,
-                            onClick = { changed(appearance) })
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(Modifier.fillMaxWidth().height(52.dp)) {
-                            appearance.palette.previewStripes.forEach { color ->
-                                Box(Modifier.weight(1f).fillMaxHeight().background(color))
+        Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Appearance.entries.chunked(4).forEach { appearances ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    appearances.forEach { appearance ->
+                        val active = appearance == selected
+                        Surface(
+                            color = palette.control,
+                            contentColor = palette.foreground,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(if (active) 2.dp else 1.dp,
+                                if (active) palette.foreground else palette.paused),
+                            modifier = Modifier.weight(1f).buttonDepth(8.dp)
+                                .selectable(selected = active, role = Role.RadioButton,
+                                    onClick = { changed(appearance) })
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (appearance.palette.texture == BackgroundTexture.NONE) {
+                                    Row(Modifier.fillMaxWidth().height(52.dp)) {
+                                        appearance.palette.previewStripes.forEach { color ->
+                                            Box(Modifier.weight(1f).fillMaxHeight().background(color))
+                                        }
+                                    }
+                                } else {
+                                    Box(Modifier.fillMaxWidth().height(52.dp).soinuBackground(appearance.palette))
+                                }
+                                Text(appearance.title, Modifier.padding(vertical = 8.dp),
+                                    color = palette.foreground, fontSize = 11.sp, maxLines = 1)
                             }
                         }
-                        Text(appearance.title, Modifier.padding(vertical = 8.dp),
-                            color = palette.foreground, fontSize = 13.sp, maxLines = 1)
                     }
                 }
+                }
             }
-        }
     }
 }

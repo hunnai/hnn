@@ -10,7 +10,8 @@ data class SoinuPalette(
     val lit: Color,
     val recording: Color,
     val playing: Color,
-    val paused: Color
+    val paused: Color,
+    val texture: BackgroundTexture = BackgroundTexture.NONE
 ) {
     val foreground = Color.White
     val previewStripes: List<Color>
@@ -41,7 +42,11 @@ enum class Appearance(val preference: String, val title: String, val palette: So
         background = Color(0xFF1A1B1E), control = Color(0xFF45484F),
         empty = Color(0xFF303237), lit = Color(0xFFB1B6BE),
         recording = Color(0xFF828892), playing = Color(0xFF626771), paused = Color(0xFF50535A)
-    ));
+    )),
+    LEOPARD("leopardo", "Leopardo", AMBER.palette.copy(texture = BackgroundTexture.LEOPARD)),
+    ZEBRA("cebra", "Cebra", GRAY.palette.copy(texture = BackgroundTexture.ZEBRA)),
+    CLOUDS("nubes", "Nubes", BLUE.palette.copy(texture = BackgroundTexture.CLOUDS)),
+    GEOMETRIC("geometrica", "Geométrica", VIOLET.palette.copy(texture = BackgroundTexture.GEOMETRIC));
 
     companion object {
         fun fromPreference(value: String?): Appearance = entries.firstOrNull { it.preference == value } ?: VIOLET
