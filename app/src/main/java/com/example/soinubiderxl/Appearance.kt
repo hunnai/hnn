@@ -1,5 +1,6 @@
 package com.example.soinubiderxl
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
@@ -54,3 +55,12 @@ enum class Appearance(val preference: String, val title: String, val palette: So
 }
 
 val LocalSoinuPalette = staticCompositionLocalOf { Appearance.VIOLET.palette }
+
+val LocalButtonOpacity = staticCompositionLocalOf { .80f }
+
+// Mantiene blancos los textos y visibles los estados de grabación/reproducción.
+@Composable
+fun Color.buttonFill(emphasized: Boolean = false): Color {
+    val opacity = LocalButtonOpacity.current
+    return copy(alpha = if (emphasized) maxOf(.85f, opacity) else opacity)
+}

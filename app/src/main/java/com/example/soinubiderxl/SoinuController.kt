@@ -38,7 +38,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private val suppressClick = mutableSetOf<Int>()
     private val actions = mutableSetOf<Action>()
     var state by mutableStateOf(SoinuState(savedAdvanceMS = readSaved(), autoRange = readAutoRange(),
-        appearance = readAppearance()))
+        appearance = readAppearance(), buttonTransparency = readButtonTransparency()))
         private set
 
     private fun readSaved(): Double = preferences.getString("advanceMS", "0")
@@ -52,6 +52,19 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         if (appearance == state.appearance) return
         preferences.edit().putString("appearance", appearance.preference).apply()
         state = state.copy(appearance = appearance)
+    }
+
+    private fun readButtonTransparency(): Float = runCatching {
+        preferences.getFloat("buttonTransparency", .20f)
+            .takeIf { it.isFinite() }?.coerceIn(0f, .60f) ?: .20f
+    }.getOrDefault(.20f)
+
+    fun setButtonTransparency(value: Float) {
+        if (value.isFinite()) state = state.copy(buttonTransparency = value.coerceIn(0f, .60f))
+    }
+
+    fun saveButtonTransparency() {
+        preferences.edit().putFloat("buttonTransparency", state.buttonTransparency).apply()
     }
 
     private fun readAutoRange(): AutoBpmRange = runCatching {

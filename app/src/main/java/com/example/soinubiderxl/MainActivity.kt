@@ -67,7 +67,10 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             val palette = controller.state.appearance.palette
-            CompositionLocalProvider(LocalSoinuPalette provides palette) {
+            CompositionLocalProvider(
+                LocalSoinuPalette provides palette,
+                LocalButtonOpacity provides (1f - controller.state.buttonTransparency)
+            ) {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = palette.lit,
                 onPrimary = palette.foreground,
@@ -113,7 +116,7 @@ private fun SoinuScreen(controller: SoinuController) {
     if (settings) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
             controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
-            controller::setAppearance)
+            controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency)
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
@@ -223,7 +226,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
         Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, top = 28.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val selected = state.mode == TempoMode.AUTOMATIC
-            Surface(color = if (selected) palette.lit else palette.control,
+            Surface(color = (if (selected) palette.lit else palette.control).buttonFill(selected),
                 contentColor = palette.foreground,
                 shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight().buttonDepth(8.dp)
                     .clickable(role = Role.Button, onClick = controller::auto)) {
@@ -240,7 +243,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
 @Composable
 private fun TapButton(selected: Boolean, controller: SoinuController, modifier: Modifier, textScale: Float) {
     val palette = LocalSoinuPalette.current
-    Surface(color = if (selected) palette.lit else palette.control,
+    Surface(color = (if (selected) palette.lit else palette.control).buttonFill(selected),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp)
             .semantics { role = Role.Button; onClick { controller.tap(SystemClock.uptimeMillis() / 1000.0); true } }
@@ -274,7 +277,7 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
         4 -> palette.paused
         else -> palette.empty
     }
-    Surface(color = if (pressed) palette.lit else color,
+    Surface(color = (if (pressed) palette.lit else color).buttonFill(pressed || bank.state in 1..3),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp, pressed)
             .semantics {
@@ -324,7 +327,7 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
     val palette = LocalSoinuPalette.current
     val scope = rememberCoroutineScope()
     var pressed by remember { mutableStateOf(false) }
-    Surface(color = if (pressed) palette.lit else palette.control,
+    Surface(color = (if (pressed) palette.lit else palette.control).buttonFill(pressed),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(10.dp), modifier = modifier.buttonDepth(10.dp, pressed)
             .semantics {
@@ -394,14 +397,16 @@ private fun SettingsScreen(
     reset: () -> Unit,
     minimumChanged: (Int) -> Unit,
     maximumChanged: (Int) -> Unit,
-    appearanceChanged: (Appearance) -> Unit
+    appearanceChanged: (Appearance) -> Unit,
+    transparencyChanged: (Float) -> Unit,
+    transparencySaved: () -> Unit
 ) {
     val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
     val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = palette.control,
+        containerColor = palette.control.buttonFill(),
         contentColor = palette.foreground,
-        disabledContainerColor = palette.empty,
+        disabledContainerColor = palette.empty.buttonFill(),
         disabledContentColor = palette.foreground
     )
     Column(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()
@@ -421,6 +426,26 @@ private fun SettingsScreen(
             BpmDropdown(state.autoRange.maximum, AutoBpmRange.maximumOptions, "BPM máximo", maximumChanged)
         }
         AppearanceSelector(state.appearance, appearanceChanged)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Transparencia de botones: ${(state.buttonTransparency * 100).roundToInt()} %",
+                color = palette.foreground, fontSize = 16.sp)
+            Slider(
+                value = state.buttonTransparency,
+                onValueChange = transparencyChanged,
+                onValueChangeFinished = transparencySaved,
+                valueRange = 0f.. .60f,
+                steps = 11,
+                modifier = Modifier.fillMaxWidth().semantics {
+                    contentDescription = "Transparencia de botones"
+                },
+                colors = SliderDefaults.colors(thumbColor = palette.lit,
+                    activeTrackColor = palette.lit, inactiveTrackColor = palette.paused)
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Opacos", color = palette.foreground, fontSize = 12.sp)
+                Text("Más transparentes", color = palette.foreground, fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -429,7 +454,7 @@ private fun BpmDropdown(value: Int, options: List<Int>, description: String, cha
     val palette = LocalSoinuPalette.current
     var expanded by remember { mutableStateOf(false) }
     Box {
-        Surface(color = palette.control, contentColor = palette.foreground,
+        Surface(color = palette.control.buttonFill(), contentColor = palette.foreground,
             shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp).buttonDepth(8.dp)
                 .semantics { contentDescription = description }
                 .clickable(role = Role.Button) { expanded = true }) {
@@ -466,7 +491,7 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
                     appearances.forEach { appearance ->
                         val active = appearance == selected
                         Surface(
-                            color = palette.control,
+                            color = palette.control.buttonFill(),
                             contentColor = palette.foreground,
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(if (active) 2.dp else 1.dp,
