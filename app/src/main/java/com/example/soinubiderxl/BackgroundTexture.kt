@@ -1,66 +1,55 @@
 package com.example.soinubiderxl
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.ceil
 
 enum class BackgroundTexture { NONE, LEOPARD, ZEBRA, CLOUDS, GEOMETRIC }
 
-// Geometría estable, calculada al cambiar tamaño o apariencia; no usa imágenes ni audio.
-fun Modifier.soinuBackground(palette: SoinuPalette): Modifier = drawWithCache {
-    val tile = 64.dp.toPx()
-    val paths = mutableListOf<Path>()
-    if (palette.texture != BackgroundTexture.NONE) {
-        for (row in -1..(size.height / tile).toInt() + 1) {
-            for (column in -1..(size.width / tile).toInt() + 1) {
-                val x = column * tile + if (row % 2 == 0) 0f else tile * .5f
-                val y = row * tile
-                paths += Path().apply {
-                    when (palette.texture) {
-                        BackgroundTexture.LEOPARD -> {
-                            moveTo(x + tile * .18f, y + tile * .32f)
-                            cubicTo(x - tile * .02f, y + tile * .02f, x + tile * .64f, y - tile * .02f, x + tile * .61f, y + tile * .31f)
-                            cubicTo(x + tile * .82f, y + tile * .64f, x + tile * .15f, y + tile * .68f, x + tile * .18f, y + tile * .32f)
-                        }
-                        BackgroundTexture.ZEBRA -> {
-                            moveTo(x, y)
-                            cubicTo(x + tile * .85f, y + tile * .3f, x - tile * .25f, y + tile * .65f, x + tile * .65f, y + tile)
-                            lineTo(x + tile * .84f, y + tile)
-                            cubicTo(x + tile * .08f, y + tile * .6f, x + tile, y + tile * .3f, x + tile * .12f, y)
-                            close()
-                        }
-                        BackgroundTexture.CLOUDS -> {
-                            moveTo(x + tile * .12f, y + tile * .66f)
-                            cubicTo(x - tile * .05f, y + tile * .38f, x + tile * .2f, y + tile * .22f, x + tile * .33f, y + tile * .39f)
-                            cubicTo(x + tile * .34f, y + tile * .03f, x + tile * .75f, y + tile * .05f, x + tile * .73f, y + tile * .4f)
-                            cubicTo(x + tile, y + tile * .28f, x + tile * 1.03f, y + tile * .7f, x + tile * .8f, y + tile * .7f)
-                            lineTo(x + tile * .2f, y + tile * .7f)
-                            close()
-                        }
-                        BackgroundTexture.GEOMETRIC -> {
-                            moveTo(x + tile * .15f, y + tile * .15f)
-                            lineTo(x + tile * .75f, y + tile * .3f)
-                            lineTo(x + tile * .4f, y + tile * .8f)
-                            close()
-                        }
-                        BackgroundTexture.NONE -> Unit
-                    }
-                }
-            }
-        }
+// Cuatro materiales en una imagen. El recorte se calcula al cambiar el tamaño.
+@Composable
+fun Modifier.soinuBackground(palette: SoinuPalette): Modifier {
+    if (palette.texture == BackgroundTexture.NONE) {
+        return drawWithCache { onDrawBehind { drawRect(palette.background) } }
     }
-    val ink = palette.lit.copy(alpha = if (palette.texture == BackgroundTexture.ZEBRA) .085f else .12f)
-    val outline = Stroke(1.2.dp.toPx())
-    onDrawBehind {
-        drawRect(palette.background)
-        paths.forEach { path ->
-            if (palette.texture == BackgroundTexture.ZEBRA || palette.texture == BackgroundTexture.CLOUDS) {
-                drawPath(path, ink)
-            } else {
-                drawPath(path, ink, style = outline)
-            }
+    val atlas = ImageBitmap.imageResource(R.drawable.soinu_texture_atlas)
+    val column = when (palette.texture) {
+        BackgroundTexture.ZEBRA, BackgroundTexture.GEOMETRIC -> 1
+        else -> 0
+    }
+    val row = when (palette.texture) {
+        BackgroundTexture.CLOUDS, BackgroundTexture.GEOMETRIC -> 1
+        else -> 0
+    }
+    return drawWithCache {
+        // Recorta dentro del cuadrante: no estira el material ni muestra las juntas.
+        val cellWidth = atlas.width / 2
+        val cellHeight = atlas.height / 2
+        val scale = maxOf(size.width / cellWidth, size.height / cellHeight)
+        val cropWidth = ceil(size.width / scale).toInt().coerceIn(1, cellWidth)
+        val cropHeight = ceil(size.height / scale).toInt().coerceIn(1, cellHeight)
+        val source = IntOffset(
+            column * cellWidth + (cellWidth - cropWidth) / 2,
+            row * cellHeight + (cellHeight - cropHeight) / 2
+        )
+        val destination = IntSize(ceil(size.width).toInt().coerceAtLeast(1), ceil(size.height).toInt().coerceAtLeast(1))
+        onDrawBehind {
+            drawRect(palette.background)
+            drawImage(
+                image = atlas,
+                srcOffset = source,
+                srcSize = IntSize(cropWidth, cropHeight),
+                dstSize = destination,
+                filterQuality = FilterQuality.Medium
+            )
+            drawRect(Color.Black.copy(alpha = .18f))
         }
     }
 }
