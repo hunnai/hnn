@@ -47,7 +47,12 @@ enum class Appearance(val preference: String, val title: String, val palette: So
     LEOPARD("leopardo", "Leopardo", AMBER.palette.copy(texture = BackgroundTexture.LEOPARD)),
     ZEBRA("cebra", "Cebra", GRAY.palette.copy(texture = BackgroundTexture.ZEBRA)),
     CLOUDS("nubes", "Nubes", BLUE.palette.copy(texture = BackgroundTexture.CLOUDS)),
-    GEOMETRIC("geometrica", "Geométrica", VIOLET.palette.copy(texture = BackgroundTexture.GEOMETRIC));
+    GEOMETRIC("geometrica", "Geométrica", SoinuPalette(
+        background = Color.Black, control = Color(0xFF24485D),
+        empty = Color(0xFF24485D), lit = Color(0xFF487F96),
+        recording = Color(0xFF9B344E), playing = Color(0xFF216A5A), paused = Color(0xFF353943),
+        texture = BackgroundTexture.GEOMETRIC
+    ));
 
     companion object {
         fun fromPreference(value: String?): Appearance = entries.firstOrNull { it.preference == value } ?: VIOLET
@@ -64,3 +69,13 @@ fun Color.buttonFill(emphasized: Boolean = false): Color {
     val opacity = LocalButtonOpacity.current
     return copy(alpha = if (emphasized) maxOf(.85f, opacity) else opacity)
 }
+
+// Colores profundos que mantienen el contraste del texto blanco.
+private val geometricButtonColors = listOf(
+    Color(0xFF205674), Color(0xFF604177), Color(0xFF813D51),
+    Color(0xFF236158), Color(0xFF77561F), Color(0xFF3E4F85)
+)
+
+fun SoinuPalette.buttonColor(index: Int, fallback: Color = control): Color =
+    if (texture == BackgroundTexture.GEOMETRIC) geometricButtonColors[Math.floorMod(index, geometricButtonColors.size)]
+    else fallback

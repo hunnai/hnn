@@ -19,6 +19,7 @@ fun Modifier.soinuBackground(palette: SoinuPalette): Modifier {
     if (palette.texture == BackgroundTexture.NONE) {
         return drawWithCache { onDrawBehind { drawRect(palette.background) } }
     }
+    if (palette.texture == BackgroundTexture.GEOMETRIC) return geometricBackground()
     val atlas = ImageBitmap.imageResource(R.drawable.soinu_texture_atlas)
     val column = when (palette.texture) {
         BackgroundTexture.ZEBRA, BackgroundTexture.GEOMETRIC -> 1

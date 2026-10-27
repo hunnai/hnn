@@ -226,8 +226,9 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
         Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, top = 28.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val selected = state.mode == TempoMode.AUTOMATIC
-            Surface(color = (if (selected) palette.lit else palette.control).buttonFill(selected),
+            Surface(color = (if (selected) palette.buttonColor(0, palette.lit) else palette.buttonColor(0)).buttonFill(selected),
                 contentColor = palette.foreground,
+                border = if (selected) BorderStroke(1.dp, palette.foreground.copy(alpha = .65f)) else null,
                 shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight().buttonDepth(8.dp)
                     .clickable(role = Role.Button, onClick = controller::auto)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("AUTO", fontSize = (15 * scale).sp) }
@@ -243,8 +244,9 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
 @Composable
 private fun TapButton(selected: Boolean, controller: SoinuController, modifier: Modifier, textScale: Float) {
     val palette = LocalSoinuPalette.current
-    Surface(color = (if (selected) palette.lit else palette.control).buttonFill(selected),
+    Surface(color = (if (selected) palette.buttonColor(1, palette.lit) else palette.buttonColor(1)).buttonFill(selected),
         contentColor = palette.foreground,
+        border = if (selected) BorderStroke(1.dp, palette.foreground.copy(alpha = .65f)) else null,
         shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp)
             .semantics { role = Role.Button; onClick { controller.tap(SystemClock.uptimeMillis() / 1000.0); true } }
             .pointerInput(controller) {
@@ -275,7 +277,7 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
         1, 2 -> palette.recording
         3 -> palette.playing
         4 -> palette.paused
-        else -> palette.empty
+        else -> palette.buttonColor(index, palette.empty)
     }
     Surface(color = (if (pressed) palette.lit else color).buttonFill(pressed || bank.state in 1..3),
         contentColor = palette.foreground,
@@ -327,7 +329,10 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
     val palette = LocalSoinuPalette.current
     val scope = rememberCoroutineScope()
     var pressed by remember { mutableStateOf(false) }
-    Surface(color = (if (pressed) palette.lit else palette.control).buttonFill(pressed),
+    val baseColor = palette.buttonColor(when (kind) {
+        "erase" -> 2; "reset" -> 4; "back" -> 0; else -> 1
+    })
+    Surface(color = (if (pressed) palette.lit else baseColor).buttonFill(pressed),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(10.dp), modifier = modifier.buttonDepth(10.dp, pressed)
             .semantics {
@@ -404,7 +409,7 @@ private fun SettingsScreen(
     val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
     val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = palette.control.buttonFill(),
+        containerColor = palette.buttonColor(0).buttonFill(),
         contentColor = palette.foreground,
         disabledContainerColor = palette.empty.buttonFill(),
         disabledContentColor = palette.foreground
@@ -418,7 +423,8 @@ private fun SettingsScreen(
         Text("Desfase actual: ${state.currentAdvanceMS?.let(::format) ?: "—"}", fontSize = 20.sp)
         Button(onClick = save, enabled = state.currentAdvanceMS != null, colors = buttonColors, modifier = Modifier.buttonDepth(50.dp)) { Text("Usar valor actual") }
         Text("Desfase guardado: ${format(state.savedAdvanceMS)}", fontSize = 20.sp)
-        Button(onClick = reset, colors = buttonColors, modifier = Modifier.buttonDepth(50.dp)) { Text("Resetear valor") }
+        Button(onClick = reset, colors = ButtonDefaults.buttonColors(
+            containerColor = palette.buttonColor(2).buttonFill(), contentColor = palette.foreground), modifier = Modifier.buttonDepth(50.dp)) { Text("Resetear valor") }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Rango BPM Auto", Modifier.weight(1f), fontSize = 16.sp)
@@ -454,7 +460,7 @@ private fun BpmDropdown(value: Int, options: List<Int>, description: String, cha
     val palette = LocalSoinuPalette.current
     var expanded by remember { mutableStateOf(false) }
     Box {
-        Surface(color = palette.control.buttonFill(), contentColor = palette.foreground,
+        Surface(color = palette.buttonColor(if (description.contains("mínimo")) 0 else 1).buttonFill(), contentColor = palette.foreground,
             shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp).buttonDepth(8.dp)
                 .semantics { contentDescription = description }
                 .clickable(role = Role.Button) { expanded = true }) {
