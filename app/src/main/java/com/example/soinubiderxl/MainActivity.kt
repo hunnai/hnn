@@ -30,6 +30,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -156,6 +161,26 @@ private fun SoinuScreen(controller: SoinuController) {
     }
 }
 
+// Bisel fino: luz arriba/izquierda y sombra abajo/derecha.
+private fun Modifier.buttonDepth(radius: Dp, pressed: Boolean = false): Modifier = drawWithContent {
+    drawContent()
+    val stroke = 1.dp.toPx()
+    val inset = stroke / 2f
+    val light = Color.White.copy(alpha = if (pressed) .12f else .24f)
+    val dark = Color.Black.copy(alpha = if (pressed) .22f else .48f)
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            0f to light, .42f to Color.White.copy(alpha = .06f),
+            .58f to Color.Black.copy(alpha = .08f), 1f to dark,
+            start = Offset.Zero, end = Offset(size.width, size.height)
+        ),
+        topLeft = Offset(inset, inset),
+        size = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
+        cornerRadius = CornerRadius((radius.toPx() - inset).coerceAtLeast(0f)),
+        style = Stroke(stroke)
+    )
+}
+
 @Composable
 private fun GearButton(open: () -> Unit) {
     val palette = LocalSoinuPalette.current
@@ -200,7 +225,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
             val selected = state.mode == TempoMode.AUTOMATIC
             Surface(color = if (selected) palette.lit else palette.control,
                 contentColor = palette.foreground,
-                shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight()
+                shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight().buttonDepth(8.dp)
                     .clickable(role = Role.Button, onClick = controller::auto)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("AUTO", fontSize = (15 * scale).sp) }
             }
@@ -217,7 +242,7 @@ private fun TapButton(selected: Boolean, controller: SoinuController, modifier: 
     val palette = LocalSoinuPalette.current
     Surface(color = if (selected) palette.lit else palette.control,
         contentColor = palette.foreground,
-        shape = RoundedCornerShape(8.dp), modifier = modifier
+        shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp)
             .semantics { role = Role.Button; onClick { controller.tap(SystemClock.uptimeMillis() / 1000.0); true } }
             .pointerInput(controller) {
                 awaitEachGesture {
@@ -251,7 +276,7 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
     }
     Surface(color = if (pressed) palette.lit else color,
         contentColor = palette.foreground,
-        shape = RoundedCornerShape(8.dp), modifier = modifier
+        shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp, pressed)
             .semantics {
                 role = Role.Button
                 onClick { if (controller.state.audioRunning) { controller.bankPressed(index); true } else false }
@@ -301,7 +326,7 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
     var pressed by remember { mutableStateOf(false) }
     Surface(color = if (pressed) palette.lit else palette.control,
         contentColor = palette.foreground,
-        shape = RoundedCornerShape(10.dp), modifier = modifier
+        shape = RoundedCornerShape(10.dp), modifier = modifier.buttonDepth(10.dp, pressed)
             .semantics {
                 role = Role.Button
                 onClick {
@@ -386,9 +411,9 @@ private fun SettingsScreen(
             TextButton(onClick = close) { Text("Cerrar ✕", color = palette.foreground) }
         }
         Text("Desfase actual: ${state.currentAdvanceMS?.let(::format) ?: "—"}", fontSize = 20.sp)
-        Button(onClick = save, enabled = state.currentAdvanceMS != null, colors = buttonColors) { Text("Usar valor actual") }
+        Button(onClick = save, enabled = state.currentAdvanceMS != null, colors = buttonColors, modifier = Modifier.buttonDepth(50.dp)) { Text("Usar valor actual") }
         Text("Desfase guardado: ${format(state.savedAdvanceMS)}", fontSize = 20.sp)
-        Button(onClick = reset, colors = buttonColors) { Text("Resetear valor") }
+        Button(onClick = reset, colors = buttonColors, modifier = Modifier.buttonDepth(50.dp)) { Text("Resetear valor") }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Rango BPM Auto", Modifier.weight(1f), fontSize = 16.sp)
@@ -405,7 +430,7 @@ private fun BpmDropdown(value: Int, options: List<Int>, description: String, cha
     var expanded by remember { mutableStateOf(false) }
     Box {
         Surface(color = palette.control, contentColor = palette.foreground,
-            shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp)
+            shape = RoundedCornerShape(8.dp), modifier = Modifier.width(64.dp).height(48.dp).buttonDepth(8.dp)
                 .semantics { contentDescription = description }
                 .clickable(role = Role.Button) { expanded = true }) {
             Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
@@ -444,7 +469,7 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
                     shape = RoundedCornerShape(8.dp),
                     border = BorderStroke(if (active) 2.dp else 1.dp,
                         if (active) palette.foreground else palette.paused),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).buttonDepth(8.dp)
                         .selectable(selected = active, role = Role.RadioButton,
                             onClick = { changed(appearance) })
                 ) {

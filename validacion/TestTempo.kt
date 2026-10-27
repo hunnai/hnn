@@ -7,17 +7,17 @@ fun main() {
     check(AutoBpmRange.maximumOptions == listOf(105, 115, 125, 135, 145, 155, 165, 175))
     var transitions = 0
     for (minimum in AutoBpmRange.minimumOptions) for (maximum in AutoBpmRange.maximumOptions) {
-        if (maximum - minimum != 20) continue
+        if (maximum - minimum < 20) continue
         val range = AutoBpmRange(minimum, maximum)
         for (value in AutoBpmRange.minimumOptions) {
             val updated = range.withMinimum(value)
-            check(updated.minimum == value && updated.maximum - updated.minimum == 20)
+            check(updated.minimum == value && updated.maximum == maxOf(maximum, value + 20))
             check(updated.maximum in AutoBpmRange.maximumOptions)
             transitions++
         }
         for (value in AutoBpmRange.maximumOptions) {
             val updated = range.withMaximum(value)
-            check(updated.maximum == value && updated.maximum - updated.minimum == 20)
+            check(updated.maximum == value && updated.minimum == minOf(minimum, value - 20))
             check(updated.minimum in AutoBpmRange.minimumOptions)
             transitions++
         }
@@ -25,7 +25,9 @@ fun main() {
     check(AutoBpmRange().withMinimum(155) == AutoBpmRange(155, 175))
     check(AutoBpmRange().withMaximum(105) == AutoBpmRange(85, 105))
     check(runCatching { AutoBpmRange(115, 125) }.isFailure)
-    check(runCatching { AutoBpmRange(85, 175) }.isFailure)
+    check(AutoBpmRange().withMinimum(85) == AutoBpmRange(85, 135))
+    check(AutoBpmRange().withMaximum(175) == AutoBpmRange(115, 175))
+    check(AutoBpmRange(85, 175).withMinimum(95) == AutoBpmRange(95, 175))
     println("PASS AUTO range: $transitions transitions, limits and 20-BPM separation")
 
     val tap = TapTempoEstimator()
