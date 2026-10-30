@@ -226,7 +226,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
         Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, top = 28.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val selected = state.mode == TempoMode.AUTOMATIC
-            Surface(color = (if (selected) palette.buttonColor(0, palette.lit) else palette.buttonColor(0)).buttonFill(selected),
+            Surface(color = (if (selected) palette.buttonColor(0, palette.lit) else palette.buttonColor(0)).buttonFill(),
                 contentColor = palette.foreground,
                 border = if (selected) BorderStroke(1.dp, palette.foreground.copy(alpha = .65f)) else null,
                 shape = RoundedCornerShape(8.dp), modifier = Modifier.width(74.dp * scale).fillMaxHeight().buttonDepth(8.dp)
@@ -244,7 +244,7 @@ private fun TempoPanel(state: SoinuState, controller: SoinuController, height: D
 @Composable
 private fun TapButton(selected: Boolean, controller: SoinuController, modifier: Modifier, textScale: Float) {
     val palette = LocalSoinuPalette.current
-    Surface(color = (if (selected) palette.buttonColor(1, palette.lit) else palette.buttonColor(1)).buttonFill(selected),
+    Surface(color = (if (selected) palette.buttonColor(1, palette.lit) else palette.buttonColor(1)).buttonFill(),
         contentColor = palette.foreground,
         border = if (selected) BorderStroke(1.dp, palette.foreground.copy(alpha = .65f)) else null,
         shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp)
@@ -279,7 +279,7 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
         4 -> palette.paused
         else -> palette.buttonColor(index, palette.empty)
     }
-    Surface(color = (if (pressed) palette.lit else color).buttonFill(pressed || bank.state in 1..3),
+    Surface(color = (if (pressed) palette.lit else color).buttonFill(),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(8.dp), modifier = modifier.buttonDepth(8.dp, pressed)
             .semantics {
@@ -332,7 +332,7 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
     val baseColor = palette.buttonColor(when (kind) {
         "erase" -> 2; "reset" -> 4; "back" -> 0; else -> 1
     })
-    Surface(color = (if (pressed) palette.lit else baseColor).buttonFill(pressed),
+    Surface(color = (if (pressed) palette.lit else baseColor).buttonFill(),
         contentColor = palette.foreground,
         shape = RoundedCornerShape(10.dp), modifier = modifier.buttonDepth(10.dp, pressed)
             .semantics {
@@ -439,18 +439,14 @@ private fun SettingsScreen(
                 value = state.buttonTransparency,
                 onValueChange = transparencyChanged,
                 onValueChangeFinished = transparencySaved,
-                valueRange = 0f.. .60f,
-                steps = 11,
+                valueRange = 0f..1f,
+                steps = 19,
                 modifier = Modifier.fillMaxWidth().semantics {
                     contentDescription = "Transparencia de botones"
                 },
                 colors = SliderDefaults.colors(thumbColor = palette.lit,
                     activeTrackColor = palette.lit, inactiveTrackColor = palette.paused)
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Opacos", color = palette.foreground, fontSize = 12.sp)
-                Text("Más transparentes", color = palette.foreground, fontSize = 12.sp)
-            }
         }
     }
 }
@@ -503,6 +499,7 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
                             border = BorderStroke(if (active) 2.dp else 1.dp,
                                 if (active) palette.foreground else palette.paused),
                             modifier = Modifier.weight(1f).buttonDepth(8.dp)
+                                .semantics { contentDescription = appearance.title }
                                 .selectable(selected = active, role = Role.RadioButton,
                                     onClick = { changed(appearance) })
                         ) {
@@ -516,8 +513,6 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
                                 } else {
                                     Box(Modifier.fillMaxWidth().height(52.dp).soinuBackground(appearance.palette))
                                 }
-                                Text(appearance.title, Modifier.padding(vertical = 8.dp),
-                                    color = palette.foreground, fontSize = 11.sp, maxLines = 1)
                             }
                         }
                     }

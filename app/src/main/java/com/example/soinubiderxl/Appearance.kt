@@ -63,11 +63,11 @@ val LocalSoinuPalette = staticCompositionLocalOf { Appearance.VIOLET.palette }
 
 val LocalButtonOpacity = staticCompositionLocalOf { .80f }
 
-// Mantiene blancos los textos y visibles los estados de grabación/reproducción.
+// La transparencia afecta al relleno; conserva textos y LED opacos.
 @Composable
-fun Color.buttonFill(emphasized: Boolean = false): Color {
+fun Color.buttonFill(): Color {
     val opacity = LocalButtonOpacity.current
-    return copy(alpha = if (emphasized) maxOf(.85f, opacity) else opacity)
+    return copy(alpha = opacity.coerceIn(0f, 1f))
 }
 
 // Colores profundos que mantienen el contraste del texto blanco.

@@ -56,11 +56,11 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
 
     private fun readButtonTransparency(): Float = runCatching {
         preferences.getFloat("buttonTransparency", .20f)
-            .takeIf { it.isFinite() }?.coerceIn(0f, .60f) ?: .20f
+            .takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: .20f
     }.getOrDefault(.20f)
 
     fun setButtonTransparency(value: Float) {
-        if (value.isFinite()) state = state.copy(buttonTransparency = value.coerceIn(0f, .60f))
+        if (value.isFinite()) state = state.copy(buttonTransparency = value.coerceIn(0f, 1f))
     }
 
     fun saveButtonTransparency() {
