@@ -16,8 +16,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -187,19 +185,30 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         pending.clear()
         state = state.copy(audioRunning = false, inputPeak = 0f, route = "Audio detenido")
     }
-    private data class AnalysisBatch(
-        val generation: Int, val rate: Double, val range: AutoBpmRange,
-        val packets: List<Pair<Long, FloatArray>>
-    )
-
     private fun poll() {
+        data class AnalysisBatch(
+            val generation: Int, val rate: Double, val range: AutoBpmRange,
+            val packets: List<Pair<Long, FloatArray>>
+        )
+        fun selectTempo(current: TempoEstimate?, candidate: TempoEstimate?, clock: Double, rate: Double): TempoEstimate? {
+            if (!clock.isFinite() || !rate.isFinite() || rate <= 0) return null
+            fun fresh(value: TempoEstimate?): Boolean = value != null &&
+                value.bpm.isFinite() && value.bpm > 0 && value.anchor.isFinite() &&
+                value.timestamp.isFinite() && clock - value.timestamp >= -.25 * rate &&
+                clock - value.timestamp <= 5.0 * rate
+            val previous = current?.takeIf { fresh(it) }
+            val next = candidate?.takeIf { fresh(it) }
+            return if (next != null && (previous == null || next.timestamp >= previous.timestamp)) next else previous
+        }
         polling?.cancel()
         polling = viewModelScope.launch {
             try {
                 coroutineScope {
                     // La recogida JNI nunca espera a la FFT ni al ajuste del tempo.
                     // Cola acotada: si el teléfono no alcanza, prima el audio reciente.
-                    val analysis = Channel<AnalysisBatch>(16, BufferOverflow.DROP_OLDEST)
+                    val analysis = kotlinx.coroutines.channels.Channel<AnalysisBatch>(
+                        16, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+                    )
                     var audioClock = 0.0
                     val analyzer = launch(Dispatchers.Default) {
                         var detector: BeatTracker? = null
@@ -217,7 +226,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             }
                             withContext(Dispatchers.Main.immediate) {
                                 if (state.audioRunning && generation == batch.generation && state.mode == TempoMode.AUTOMATIC) {
-                                    val tempo = AutomaticTempoHold.select(state.tempo, result, audioClock, batch.rate)
+                                    val tempo = selectTempo(state.tempo, result, audioClock, batch.rate)
                                     if (tempo != state.tempo) state = state.copy(tempo = tempo)
                                 }
                             }
@@ -239,7 +248,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                     snapshot[p+1].toInt(), snapshot[p+2], snapshot[p+3], snapshot[p+4].toFloat())
                             }
                             val tempo = if (state.mode == TempoMode.AUTOMATIC)
-                                AutomaticTempoHold.select(state.tempo, null, audioClock, snapshot[0]) else state.tempo
+                                selectTempo(state.tempo, null, audioClock, snapshot[0]) else state.tempo
                             state = state.copy(banks = banks, tempo = tempo,
                                 inputPeak = max(snapshot[2].toFloat(), state.inputPeak * .975f))
                             updateAdvance()
