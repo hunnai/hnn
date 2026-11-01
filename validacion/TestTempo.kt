@@ -61,6 +61,32 @@ fun main() {
         check(abs(result.bpm - bpm) < .15) { "Expected $bpm, got ${result.bpm}" }
         println("PASS AUTO synthetic $bpm BPM in ${range.minimum}..${range.maximum} -> ${result.bpm}")
     }
+    // Pérdida real de paquetes: la FFT reinicia evidencia y la pantalla mantiene
+    // el último BPM, con su fase original, solo durante la ventana de recuperación.
+    run {
+        val rate = 48000.0
+        val tracker = BeatTracker(rate)
+        var position = 0L
+        fun block(): FloatArray = FloatArray(1024) { i ->
+            val phase = ((position + i) % 24000) / rate
+            (exp(-phase * 65) * .7 * sin(2 * PI * 90 * phase)).toFloat()
+        }
+        while (position < 20 * rate) {
+            tracker.feed(position, block()); position += 1024
+        }
+        val stable = checkNotNull(tracker.estimate)
+        position += 4096
+        val interrupted = tracker.feed(position, block())
+        check(interrupted == null)
+        check(AutomaticTempoHold.select(stable, interrupted, position.toDouble(), rate) == stable)
+        check(AutomaticTempoHold.select(stable, interrupted, stable.timestamp + 5 * rate + 1, rate) == null)
+        position += 1024
+        while (position < 35 * rate) {
+            tracker.feed(position, block()); position += 1024
+        }
+        check(abs(checkNotNull(tracker.estimate).bpm - 120) < .15)
+        println("PASS AUTO: pérdida de paquetes, mantenimiento temporal y recuperación a 120 BPM")
+    }
     val silent = BeatTracker(48000.0)
     for (i in 0 until 1000) silent.feed(i.toLong() * 1024, FloatArray(1024))
     check(silent.estimate == null)

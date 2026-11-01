@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -185,49 +187,78 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         pending.clear()
         state = state.copy(audioRunning = false, inputPeak = 0f, route = "Audio detenido")
     }
+    private data class AnalysisBatch(
+        val generation: Int, val rate: Double, val range: AutoBpmRange,
+        val packets: List<Pair<Long, FloatArray>>
+    )
+
     private fun poll() {
         polling?.cancel()
         polling = viewModelScope.launch {
-            val samples = FloatArray(1024); val start = LongArray(1)
-            var detector: BeatTracker? = null
-            var detectorGeneration = -1
             try {
-                while (state.audioRunning && handle != 0L) {
-                    val snapshot = NativeAudio.snapshot(handle)
-                    check(snapshot.size == 37) { "Respuesta del motor incompleta" }
-                    check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado (${snapshot[3].toInt()}). Vuelve a iniciar el audio." }
-                    val banks = List(6) { index ->
-                        val p = 7 + index * 5
-                        val status = snapshot[p].toInt()
-                        if (status != 0) pending.remove(index)
-                        LoopBankState(if (index in pending && status == 0) 1 else status,
-                            snapshot[p+1].toInt(), snapshot[p+2], snapshot[p+3], snapshot[p+4].toFloat())
-                    }
-                    state = state.copy(banks = banks,
-                        inputPeak = max(snapshot[2].toFloat(), state.inputPeak * .975f))
-                    updateAdvance()
-                    if (detectorGeneration != generation) {
-                        detector = if (state.mode == TempoMode.AUTOMATIC) BeatTracker(snapshot[0], state.autoRange) else null
-                        detectorGeneration = generation
-                    }
-                    val packets = mutableListOf<Pair<Long, FloatArray>>()
-                    for (i in 0 until 8) {
-                        val count = NativeAudio.readAnalysis(handle, samples, start)
-                        if (count == 0) break
-                        if (detector != null) packets.add(start[0] to samples.copyOf(count))
-                    }
-                    val worker = detector
-                    if (worker != null && packets.isNotEmpty()) {
-                        val token = generation
-                        val result = withContext(Dispatchers.Default) {
-                            var value = worker.estimate
-                            for ((position, audio) in packets) value = worker.feed(position, audio)
-                            value
+                coroutineScope {
+                    // La recogida JNI nunca espera a la FFT ni al ajuste del tempo.
+                    // Cola acotada: si el teléfono no alcanza, prima el audio reciente.
+                    val analysis = Channel<AnalysisBatch>(16, BufferOverflow.DROP_OLDEST)
+                    var audioClock = 0.0
+                    val analyzer = launch(Dispatchers.Default) {
+                        var detector: BeatTracker? = null
+                        var detectorGeneration = -1
+                        for (batch in analysis) {
+                            if (detectorGeneration != batch.generation) {
+                                detector = BeatTracker(batch.rate, batch.range)
+                                detectorGeneration = batch.generation
+                            }
+                            val worker = checkNotNull(detector)
+                            var result = worker.estimate
+                            for ((position, audio) in batch.packets) {
+                                ensureActive()
+                                result = worker.feed(position, audio)
+                            }
+                            withContext(Dispatchers.Main.immediate) {
+                                if (state.audioRunning && generation == batch.generation && state.mode == TempoMode.AUTOMATIC) {
+                                    val tempo = AutomaticTempoHold.select(state.tempo, result, audioClock, batch.rate)
+                                    if (tempo != state.tempo) state = state.copy(tempo = tempo)
+                                }
+                            }
                         }
-                        if (state.audioRunning && generation == token && state.mode == TempoMode.AUTOMATIC)
-                            state = state.copy(tempo = result)
                     }
-                    delay(10)
+                    val samples = FloatArray(1024)
+                    val start = LongArray(1)
+                    try {
+                        while (state.audioRunning && handle != 0L) {
+                            val snapshot = NativeAudio.snapshot(handle)
+                            check(snapshot.size == 37) { "Respuesta del motor incompleta" }
+                            check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado (${snapshot[3].toInt()}). Vuelve a iniciar el audio." }
+                            audioClock = snapshot[1]
+                            val banks = List(6) { index ->
+                                val p = 7 + index * 5
+                                val status = snapshot[p].toInt()
+                                if (status != 0) pending.remove(index)
+                                LoopBankState(if (index in pending && status == 0) 1 else status,
+                                    snapshot[p+1].toInt(), snapshot[p+2], snapshot[p+3], snapshot[p+4].toFloat())
+                            }
+                            val tempo = if (state.mode == TempoMode.AUTOMATIC)
+                                AutomaticTempoHold.select(state.tempo, null, audioClock, snapshot[0]) else state.tempo
+                            state = state.copy(banks = banks, tempo = tempo,
+                                inputPeak = max(snapshot[2].toFloat(), state.inputPeak * .975f))
+                            updateAdvance()
+                            val packets = mutableListOf<Pair<Long, FloatArray>>()
+                            // Vacía hasta la capacidad del anillo, incluso durante el análisis.
+                            for (i in 0 until 64) {
+                                val count = NativeAudio.readAnalysis(handle, samples, start)
+                                if (count == 0) break
+                                if (state.mode == TempoMode.AUTOMATIC) packets.add(start[0] to samples.copyOf(count))
+                            }
+                            if (packets.isNotEmpty()) analysis.trySend(
+                                AnalysisBatch(generation, snapshot[0], state.autoRange, packets)
+                            )
+                            delay(10)
+                        }
+                    } finally {
+                        analysis.cancel()
+                        analyzer.cancel()
+                    }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { stop(); error(e.message ?: "Error de audio") }
