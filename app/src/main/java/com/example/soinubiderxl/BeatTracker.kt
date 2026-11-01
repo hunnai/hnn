@@ -4,16 +4,20 @@ import kotlin.math.*
 
 // Confinado a una cola de análisis. Mantiene el algoritmo original de iPhone.
 class BeatTracker(private val rate: Double, private val range: AutoBpmRange = AutoBpmRange()) {
-    private data class Event(val time: Double = 0.0, val value: Double = 0.0)
     private data class Fit(val bpm: Double, val anchor: Double, val coverage: Double, val uncertainty: Double)
     private val size: Int
     private val hop: Int
     private val labelOffset: Double
     private val fft: FFTAnalyzer
     private val weights: DoubleArray
-    private val events: Array<Event>
-    private val pending = mutableListOf<Float>()
-    private var previous: DoubleArray? = null
+    private val eventTimes: DoubleArray
+    private val eventValues: DoubleArray
+    private var pending: FloatArray
+    private var pendingCount = 0
+    private var previous: DoubleArray
+    private var compressed: DoubleArray
+    private var hasPrevious = false
+    private val smoothing = DoubleArray(17) { exp(-.5 * ((it - 8) / 2.5).pow(2)) }
     private var nextInput: Long? = null
     private var cursor = 0.0
     private var lastAnalysis = Double.NEGATIVE_INFINITY
@@ -33,32 +37,48 @@ class BeatTracker(private val rate: Double, private val range: AutoBpmRange = Au
             val hz = it * rate / n
             when { hz < 30 || hz > 8000 -> 0.0; hz < 180 -> 3.0; hz < 500 -> .5; else -> .03 }
         }
-        events = Array(ceil(20 * rate / hop).toInt()) { Event() }
+        eventTimes = DoubleArray(ceil(20 * rate / hop).toInt())
+        eventValues = DoubleArray(eventTimes.size)
+        pending = FloatArray(n * 2)
+        previous = DoubleArray(n / 2 + 1)
+        compressed = DoubleArray(n / 2 + 1)
     }
     private fun clearEvidence(start: Long) {
-        pending.clear(); previous = null; head = 0; count = 0
+        pendingCount = 0; hasPrevious = false; head = 0; count = 0
         cursor = start.toDouble(); lastAnalysis = Double.NEGATIVE_INFINITY
         segmentStart = Double.NEGATIVE_INFINITY; change = null
-        // Una discontinuidad pierde la referencia de fase anterior.
-        estimate = null
+        // Igual que en iPhone: reinicia evidencia, conservando el último tempo.
     }
     fun feed(start: Long, samples: FloatArray): TempoEstimate? {
         if (nextInput != start) clearEvidence(start)
         nextInput = start + samples.size
-        pending.addAll(samples.toList())
+        val required = pendingCount + samples.size
+        if (required > pending.size) pending = pending.copyOf(max(required, pending.size * 2))
+        samples.copyInto(pending, pendingCount)
+        pendingCount = required
         var offset = 0
-        while (pending.size - offset >= size) {
+        while (pendingCount - offset >= size) {
             val spectrum = fft.spectrum(pending, offset)
-            val compressed = DoubleArray(spectrum.size) { ln1p(spectrum[it] * 500 / size) }
-            previous?.let { old ->
+            for (i in compressed.indices) compressed[i] = ln1p(spectrum[i] * 500 / size)
+            if (hasPrevious) {
                 var flux = 0.0
-                for (i in compressed.indices) flux += max(0.0, compressed[i] - old[i]) * weights[i]
-                events[head] = Event(cursor + labelOffset, flux)
-                head = (head + 1) % events.size; count = min(count + 1, events.size)
+                for (i in compressed.indices) flux += max(0.0, compressed[i] - previous[i]) * weights[i]
+                eventTimes[head] = cursor + labelOffset
+                eventValues[head] = flux
+                head = (head + 1) % eventTimes.size
+                count = min(count + 1, eventTimes.size)
             }
-            previous = compressed; offset += hop; cursor += hop
+            val swap = previous
+            previous = compressed
+            compressed = swap
+            hasPrevious = true
+            offset += hop
+            cursor += hop
         }
-        if (offset > 0) pending.subList(0, offset).clear()
+        if (offset > 0) {
+            pending.copyInto(pending, 0, offset, pendingCount)
+            pendingCount -= offset
+        }
         if (start - lastAnalysis >= rate / 2) { lastAnalysis = start.toDouble(); analyze() }
         return estimate
     }
@@ -69,9 +89,9 @@ class BeatTracker(private val rate: Double, private val range: AutoBpmRange = Au
     }
     private fun analyze() {
         if (count < (4 * rate / hop).toInt()) return
-        val first = (head - count + events.size) % events.size
-        val times = List(count) { events[(first + it) % events.size].time }
-        val flux = List(count) { events[(first + it) % events.size].value }
+        val first = (head - count + eventTimes.size) % eventTimes.size
+        val times = DoubleArray(count) { eventTimes[(first + it) % eventTimes.size] }
+        val flux = DoubleArray(count) { eventValues[(first + it) % eventValues.size] }
         val reference = times.last()
         val width = (0.5 * rate / hop).toInt() or 1; val half = width / 2
         val prefix = DoubleArray(count + 1)
@@ -121,33 +141,47 @@ class BeatTracker(private val rate: Double, private val range: AutoBpmRange = Au
         estimate = TempoEstimate(slow.bpm, slow.anchor, slow.coverage, reference)
     }
     private fun fit(
-        times: List<Double>, values: DoubleArray, onsets: List<Double>, strengths: List<Double>,
+        times: DoubleArray, values: DoubleArray, onsets: List<Double>, strengths: List<Double>,
         reference: Double, seconds: Double, minimum: Double
     ): Fit? {
         val lower = max(segmentStart, reference - seconds * rate)
-        val ids = times.indices.filter { times[it] >= lower }
-        val first = ids.firstOrNull() ?: return null; val last = ids.lastOrNull() ?: return null
-        if (times[last] - times[first] < minimum * rate) return null
-        val scores = mutableListOf<Double>(); val profiles = mutableListOf<DoubleArray>()
-        val smoothing = DoubleArray(17) { exp(-.5 * ((it - 8) / 2.5).pow(2)) }
-        for (step in 0..((range.maximum - range.minimum) * 4)) {
-            val period = 60 * rate / (range.minimum + step * .25)
-            val histogram = DoubleArray(96)
-            for (i in ids) {
-                val phase = (reference - times[i]) % period
-                histogram[(phase / period * 96).toInt().coerceIn(0, 95)] += values[i]
+        var first = 0
+        while (first < times.size && times[first] < lower) first++
+        val last = times.lastIndex
+        if (first > last || times[last] - times[first] < minimum * rate) return null
+        val scores = DoubleArray((range.maximum - range.minimum) * 4 + 1)
+        val histogram = DoubleArray(96)
+        val profile = DoubleArray(96)
+        var bestProfile = DoubleArray(96)
+        var best = 0
+        var score = Double.NEGATIVE_INFINITY
+        for (step in scores.indices) {
+            val candidatePeriod = 60 * rate / (range.minimum + step * .25)
+            histogram.fill(0.0)
+            for (i in first..last) {
+                val phase = (reference - times[i]) % candidatePeriod
+                histogram[(phase / candidatePeriod * 96).toInt().coerceIn(0, 95)] += values[i]
             }
-            val profile = DoubleArray(96)
-            for (bin in 0 until 96) for (delta in -8..8)
-                profile[bin] += histogram[(bin + delta + 96) % 96] * smoothing[delta + 8]
-            scores.add(profile.maxOrNull() ?: 0.0); profiles.add(profile)
+            profile.fill(0.0)
+            var candidateScore = 0.0
+            for (bin in 0 until 96) {
+                for (delta in -8..8) {
+                    var index = bin + delta
+                    if (index < 0) index += 96 else if (index >= 96) index -= 96
+                    profile[bin] += histogram[index] * smoothing[delta + 8]
+                }
+                candidateScore = max(candidateScore, profile[bin])
+            }
+            scores[step] = candidateScore
+            if (candidateScore > score) {
+                score = candidateScore
+                best = step
+                profile.copyInto(bestProfile)
+            }
         }
-        val score = scores.maxOrNull() ?: return null
-        if (score < 1.6 * max(1e-9, percentile(scores, .5))) return null
-        val best = scores.indexOf(score)
+        if (score < 1.6 * max(1e-9, percentile(scores.toList(), .5))) return null
         var period = 60 * rate / (range.minimum + best * .25)
-        val profile = profiles[best]
-        val bin = profile.indices.maxByOrNull { profile[it] } ?: return null
+        val bin = bestProfile.indices.maxByOrNull { bestProfile[it] } ?: return null
         var anchor = reference - (bin + .5) / 96 * period
         val chosen = mutableMapOf<Int, Pair<Double, Double>>()
         for (i in onsets.indices) {

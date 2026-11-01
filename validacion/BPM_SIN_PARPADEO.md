@@ -1,3 +1,5 @@
+NOTA: documento histórico. La retención de cinco segundos y el flujo descritos aquí se sustituyen por la adaptación basada en los archivos de iPhone. Véase bpm-iphone/README.md.
+
 Corrección de la publicación de BPM automático
 
 La recogida JNI y el análisis compartían una corrutina: mientras la FFT/ajuste trabajaba, no se vaciaba el anillo de audio. BeatTracker borra evidencia y estimate ante una discontinuidad; publicar ese null borraba el valor de pantalla.

@@ -43,7 +43,9 @@ fun main() {
         118.0 to AutoBpmRange(), 120.0 to AutoBpmRange(), 132.0 to AutoBpmRange(),
         85.0 to AutoBpmRange(85, 105), 90.0 to AutoBpmRange(85, 105),
         170.0 to AutoBpmRange(155, 175), 175.0 to AutoBpmRange(155, 175),
-        120.0 to AutoBpmRange(105, 125)
+        120.0 to AutoBpmRange(105, 125),
+        90.0 to AutoBpmRange(85, 175), 120.0 to AutoBpmRange(85, 175),
+        170.0 to AutoBpmRange(85, 175)
     )) {
         val rate = 48000.0; val tracker = BeatTracker(rate, range)
         val period = rate * 60 / bpm
@@ -62,7 +64,7 @@ fun main() {
         println("PASS AUTO synthetic $bpm BPM in ${range.minimum}..${range.maximum} -> ${result.bpm}")
     }
     // Pérdida real de paquetes: la FFT reinicia evidencia y la pantalla mantiene
-    // el último BPM, con su fase original, solo durante la ventana de recuperación.
+    // el último BPM con su fase original, igual que el detector de iPhone.
     run {
         val rate = 48000.0
         val tracker = BeatTracker(rate)
@@ -77,7 +79,7 @@ fun main() {
         val stable = checkNotNull(tracker.estimate)
         position += 4096
         val interrupted = tracker.feed(position, block())
-        check(interrupted == null)
+        check(interrupted == stable)
         check(AutomaticTempoHold.select(stable, interrupted, position.toDouble(), rate) == stable)
         check(AutomaticTempoHold.select(stable, interrupted, stable.timestamp + 5 * rate + 1, rate) == null)
         position += 1024
@@ -85,7 +87,7 @@ fun main() {
             tracker.feed(position, block()); position += 1024
         }
         check(abs(checkNotNull(tracker.estimate).bpm - 120) < .15)
-        println("PASS AUTO: pérdida de paquetes, mantenimiento temporal y recuperación a 120 BPM")
+        println("PASS AUTO: pérdida de paquetes, conservación como iPhone y recuperación a 120 BPM")
     }
     val silent = BeatTracker(48000.0)
     for (i in 0 until 1000) silent.feed(i.toLong() * 1024, FloatArray(1024))

@@ -190,71 +190,83 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
             val generation: Int, val rate: Double, val range: AutoBpmRange,
             val packets: List<Pair<Long, FloatArray>>
         )
-        fun selectTempo(current: TempoEstimate?, candidate: TempoEstimate?, clock: Double, rate: Double): TempoEstimate? {
-            if (!clock.isFinite() || !rate.isFinite() || rate <= 0) return null
-            fun fresh(value: TempoEstimate?): Boolean = value != null &&
-                value.bpm.isFinite() && value.bpm > 0 && value.anchor.isFinite() &&
-                value.timestamp.isFinite() && clock - value.timestamp >= -.25 * rate &&
-                clock - value.timestamp <= 5.0 * rate
-            val previous = current?.takeIf { fresh(it) }
-            val next = candidate?.takeIf { fresh(it) }
-            return if (next != null && (previous == null || next.timestamp >= previous.timestamp)) next else previous
-        }
+        data class AnalysisResult(
+            val generation: Int, val tempo: TempoEstimate?, val end: Long,
+            val gaps: Int, val milliseconds: Double
+        )
         polling?.cancel()
         polling = viewModelScope.launch {
             try {
                 coroutineScope {
-                    // La recogida JNI nunca espera a la FFT ni al ajuste del tempo.
-                    // Absorbe pausas puntuales del ajuste sin descartar enseguida la evidencia.
-                    // Sigue acotada: si el teléfono no alcanza, prima el audio reciente.
+                    val queueDrops = java.util.concurrent.atomic.AtomicInteger()
                     val analysis = kotlinx.coroutines.channels.Channel<AnalysisBatch>(
-                        128, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+                        capacity = 128,
+                        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+                        onUndeliveredElement = { queueDrops.incrementAndGet() }
                     )
-                    var audioClock = 0.0
+                    // El trabajador publica sin esperar al hilo de la pantalla.
+                    val completed = kotlinx.coroutines.channels.Channel<AnalysisResult>(
+                        kotlinx.coroutines.channels.Channel.CONFLATED
+                    )
                     val analyzer = launch(Dispatchers.Default) {
                         var detector: BeatTracker? = null
                         var detectorGeneration = -1
+                        var expected: Long? = null
+                        var gaps = 0
                         for (batch in analysis) {
                             if (detectorGeneration != batch.generation) {
                                 detector = BeatTracker(batch.rate, batch.range)
                                 detectorGeneration = batch.generation
+                                expected = null
+                                gaps = 0
                             }
                             val worker = checkNotNull(detector)
+                            val begin = System.nanoTime()
                             var result = worker.estimate
                             for ((position, audio) in batch.packets) {
                                 ensureActive()
+                                if (expected != null && expected != position) gaps++
                                 result = worker.feed(position, audio)
+                                expected = position + audio.size
                             }
-                            withContext(Dispatchers.Main.immediate) {
-                                if (state.audioRunning && generation == batch.generation && state.mode == TempoMode.AUTOMATIC) {
-                                    val tempo = selectTempo(state.tempo, result, audioClock, batch.rate)
-                                    if (tempo != state.tempo) state = state.copy(tempo = tempo)
-                                }
-                            }
+                            completed.trySend(AnalysisResult(
+                                batch.generation, result, checkNotNull(expected), gaps,
+                                (System.nanoTime() - begin) / 1_000_000.0
+                            ))
                         }
                     }
                     val samples = FloatArray(1024)
                     val start = LongArray(1)
+                    var latest: AnalysisResult? = null
+                    var lastPublish = 0L
+                    var lastDiagnostic = 0L
+                    var meterPeak = state.inputPeak
                     try {
                         while (state.audioRunning && handle != 0L) {
                             val snapshot = NativeAudio.snapshot(handle)
                             check(snapshot.size == 37) { "Respuesta del motor incompleta" }
-                            check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado (${snapshot[3].toInt()}). Vuelve a iniciar el audio." }
-                            audioClock = snapshot[1]
-                            val banks = List(6) { index ->
-                                val p = 7 + index * 5
-                                val status = snapshot[p].toInt()
-                                if (status != 0) pending.remove(index)
-                                LoopBankState(if (index in pending && status == 0) 1 else status,
-                                    snapshot[p+1].toInt(), snapshot[p+2], snapshot[p+3], snapshot[p+4].toFloat())
+                            check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado." }
+                            val result = completed.tryReceive().getOrNull()
+                            if (result != null && result.generation == generation) latest = result
+                            val now = System.nanoTime()
+                            meterPeak = max(snapshot[2].toFloat(), meterPeak * .975f)
+                            // Igual que iPhone: publica la interfaz cada 50 ms.
+                            if (now - lastPublish >= 50_000_000L) {
+                                lastPublish = now
+                                val banks = List(6) { index ->
+                                    val p = 7 + index * 5
+                                    val status = snapshot[p].toInt()
+                                    if (status != 0) pending.remove(index)
+                                    LoopBankState(if (index in pending && status == 0) 1 else status,
+                                        snapshot[p+1].toInt(), snapshot[p+2], snapshot[p+3], snapshot[p+4].toFloat())
+                                }
+                                val automatic = latest?.takeIf { it.generation == generation }
+                                val tempo = if (state.mode == TempoMode.AUTOMATIC && automatic != null)
+                                    automatic.tempo else state.tempo
+                                state = state.copy(banks = banks, tempo = tempo, inputPeak = meterPeak)
+                                updateAdvance()
                             }
-                            val tempo = if (state.mode == TempoMode.AUTOMATIC)
-                                selectTempo(state.tempo, null, audioClock, snapshot[0]) else state.tempo
-                            state = state.copy(banks = banks, tempo = tempo,
-                                inputPeak = max(snapshot[2].toFloat(), state.inputPeak * .975f))
-                            updateAdvance()
                             val packets = mutableListOf<Pair<Long, FloatArray>>()
-                            // Vacía hasta la capacidad del anillo, incluso durante el análisis.
                             for (i in 0 until 64) {
                                 val count = NativeAudio.readAnalysis(handle, samples, start)
                                 if (count == 0) break
@@ -263,10 +275,20 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             if (packets.isNotEmpty()) analysis.trySend(
                                 AnalysisBatch(generation, snapshot[0], state.autoRange, packets)
                             )
+                            if (state.mode == TempoMode.AUTOMATIC && now - lastDiagnostic >= 2_000_000_000L) {
+                                lastDiagnostic = now
+                                val automatic = latest?.takeIf { it.generation == generation }
+                                android.util.Log.d("SoinuBPM",
+                                    "Hz=${snapshot[0]} retraso=${automatic?.let { (snapshot[1] - it.end) / snapshot[0] }} " +
+                                    "perdidasMotor=${snapshot[4].toLong()} perdidasCola=${queueDrops.get()} " +
+                                    "saltos=${automatic?.gaps} calculoMS=${automatic?.milliseconds} " +
+                                    "bpm=${automatic?.tempo?.bpm} edad=${automatic?.tempo?.let { (snapshot[1] - it.timestamp) / snapshot[0] }}")
+                            }
                             delay(10)
                         }
                     } finally {
                         analysis.cancel()
+                        completed.cancel()
                         analyzer.cancel()
                     }
                 }
