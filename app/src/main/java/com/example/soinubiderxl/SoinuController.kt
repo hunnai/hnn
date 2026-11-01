@@ -205,9 +205,10 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
             try {
                 coroutineScope {
                     // La recogida JNI nunca espera a la FFT ni al ajuste del tempo.
-                    // Cola acotada: si el teléfono no alcanza, prima el audio reciente.
+                    // Absorbe pausas puntuales del ajuste sin descartar enseguida la evidencia.
+                    // Sigue acotada: si el teléfono no alcanza, prima el audio reciente.
                     val analysis = kotlinx.coroutines.channels.Channel<AnalysisBatch>(
-                        16, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+                        128, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
                     )
                     var audioClock = 0.0
                     val analyzer = launch(Dispatchers.Default) {
