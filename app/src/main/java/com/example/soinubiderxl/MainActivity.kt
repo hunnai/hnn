@@ -320,6 +320,10 @@ private fun BankPad(index: Int, controller: SoinuController, modifier: Modifier,
         Column(Modifier.fillMaxSize().padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center) {
             Text(label, fontSize = (15 * textScale).sp, textAlign = TextAlign.Center)
+            if (index in state.syncedBanks) {
+                Text(if (index in state.syncTrackingBanks) "SYNC" else "SYNC…", Modifier.padding(top = 5.dp), fontSize = (10 * textScale).sp,
+                    color = palette.foreground, letterSpacing = 1.sp)
+            }
         }
     }
 }

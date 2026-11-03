@@ -22,7 +22,7 @@ import kotlin.math.max
 // Propietario único de la sesión: las llamadas JNI de sesión usan el hilo principal.
 class SoinuController(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("SoinuBider", Context.MODE_PRIVATE)
-    private val manager = application.getSystemService(AudioManager::class.java)
+    private val manager = checkNotNull(application.getSystemService(AudioManager::class.java))
     private val tap = TapTempoEstimator()
     private var handle = 0L
     private var initialStartClaimed = false
@@ -32,6 +32,9 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private var routeWork: Job? = null
     private var generation = 0
     private var lastTap: Double? = null
+    private var audioClock = 0.0
+    private var audioRate = 48000.0
+    private val synchronizers = mutableMapOf<Int, PhaseSynchronizer>()
     private val pending = mutableSetOf<Int>()
     private val activationOrder = mutableListOf<Int>()
     private val touching = mutableSetOf<Int>()
@@ -77,7 +80,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private fun updateAutoRange(range: AutoBpmRange) {
         if (range == state.autoRange) return
         preferences.edit().putInt("autoMinimum", range.minimum).putInt("autoMaximum", range.maximum).apply()
-        if (state.mode == TempoMode.AUTOMATIC) generation++
+        if (state.mode == TempoMode.AUTOMATIC) { clearSync(); generation++ }
         state = state.copy(autoRange = range,
             tempo = if (state.mode == TempoMode.AUTOMATIC) null else state.tempo)
     }
@@ -183,6 +186,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         cancelTouches()
         if (handle != 0L) NativeAudio.stop(handle)
         pending.clear()
+        clearSync()
         state = state.copy(audioRunning = false, inputPeak = 0f, route = "Audio detenido")
     }
     private fun poll() {
@@ -246,6 +250,8 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             val snapshot = NativeAudio.snapshot(handle)
                             check(snapshot.size == 37) { "Respuesta del motor incompleta" }
                             check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado." }
+                            audioClock = snapshot[1]
+                            audioRate = snapshot[0]
                             val result = completed.tryReceive().getOrNull()
                             if (result != null && result.generation == generation) latest = result
                             val now = System.nanoTime()
@@ -264,6 +270,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                 val tempo = if (state.mode == TempoMode.AUTOMATIC && automatic != null)
                                     automatic.tempo else state.tempo
                                 state = state.copy(banks = banks, tempo = tempo, inputPeak = meterPeak)
+                                updateSync()
                                 updateAdvance()
                             }
                             val packets = mutableListOf<Pair<Long, FloatArray>>()
@@ -297,26 +304,84 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         }
     }
     fun auto() {
+        val held = state.heldBank?.takeIf { state.audioRunning && state.banks[it].state == 3 }
+        if (held != null) {
+            suppressClick.add(held)
+            if (synchronizers.remove(held) != null) {
+                publishSyncState()
+                return
+            }
+            if (state.mode != TempoMode.AUTOMATIC) {
+                generation++; tap.reset(); lastTap = null
+                state = state.copy(mode = TempoMode.AUTOMATIC, tempo = null, tapCount = 0)
+            }
+            val bank = state.banks[held]
+            if (bank.bpm.isFinite() && bank.bpm > 0) {
+                val follower = PhaseSynchronizer(bank.bpm, audioRate, audioClock, bank.advanceMS)
+                follower.prime(state.tempo, audioClock)
+                synchronizers[held] = follower
+                publishSyncState()
+            }
+            return
+        }
         if (state.mode != TempoMode.AUTOMATIC) {
             generation++; tap.reset(); lastTap = null
             state = state.copy(mode = TempoMode.AUTOMATIC, tempo = null, tapCount = 0)
         }
     }
     fun tap(timestamp: Double) {
-        if (state.mode != TempoMode.TAP) { generation++; tap.reset() }
+        if (state.mode != TempoMode.TAP) { clearSync(); generation++; tap.reset() }
         lastTap = timestamp
         val bpm = tap.press(timestamp)
         state = state.copy(mode = TempoMode.TAP, tapCount = tap.count,
             tempo = bpm?.let { TempoEstimate(it, 0.0, 1.0, timestamp) })
     }
     fun resetTempo() {
+        clearSync()
         generation++; tap.reset(); lastTap = null
         state = state.copy(tempo = null, tapCount = 0)
     }
-    private fun send(op: Int, bank: Int = -1, value: Double = 0.0): Boolean {
+    private fun publishSyncState() {
+        val enabled = synchronizers.keys.toSet()
+        val tracking = synchronizers.filterValues { it.tracking }.keys.toSet()
+        if (state.syncedBanks != enabled || state.syncTrackingBanks != tracking) {
+            state = state.copy(syncedBanks = enabled, syncTrackingBanks = tracking)
+        }
+    }
+
+    private fun clearSync(bank: Int? = null) {
+        if (bank == null) synchronizers.clear() else synchronizers.remove(bank)
+        publishSyncState()
+    }
+
+    private fun updateSync() {
+        val iterator = synchronizers.iterator()
+        while (iterator.hasNext()) {
+            val (index, follower) = iterator.next()
+            val bank = state.banks[index]
+            if (!state.audioRunning || state.mode != TempoMode.AUTOMATIC || bank.state != 3) {
+                iterator.remove()
+                continue
+            }
+            val correction = follower.propose(state.tempo, audioClock, bank.advanceMS) ?: continue
+            if (send(NativeAudio.NUDGE_BANK, index, correction, fromSync = true)) {
+                follower.accepted(state.tempo!!.timestamp)
+                android.util.Log.d("SoinuSYNC", "banco=${index + 1} correccionMS=$correction bpmLoop=${bank.bpm} bpmEntrada=${state.tempo!!.bpm}")
+            }
+        }
+        publishSyncState()
+    }
+
+    private fun send(op: Int, bank: Int = -1, value: Double = 0.0, fromSync: Boolean = false): Boolean {
         if (handle == 0L) return false
         val accepted = NativeAudio.command(handle, op, bank, value)
-        if (!accepted) error("La cola de audio está ocupada. Vuelve a intentarlo.")
+        if (accepted && !fromSync) {
+            when (op) {
+                NativeAudio.NUDGE_ALL, NativeAudio.ERASE_ALL -> clearSync()
+                NativeAudio.NUDGE_BANK, NativeAudio.ERASE_BANK, NativeAudio.RESIZE, NativeAudio.TOGGLE -> clearSync(bank)
+            }
+        }
+        if (!accepted && !fromSync) error("La cola de audio está ocupada. Vuelve a intentarlo.")
         return accepted
     }
     fun bankPressed(index: Int) {

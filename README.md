@@ -46,3 +46,7 @@ Consulta [LEEME.txt](LEEME.txt) para la instalación manual, los gestos, las pru
 - Firma del APK y distribución por enlace: pendientes.
 
 Detalle: [validacion/RESULTADOS.txt](validacion/RESULTADOS.txt).
+
+SYNC de fase (prueba)
+
+Mantener un banco que ya suena y pulsar AUTO activa/desactiva el seguimiento de pequeñas derivas respecto a su alineación manual inicial. SYNC… espera pulsos fiables; SYNC sigue la fase mediante ajustes pequeños y fundidos, manteniendo el BPM y la velocidad del loop. Se pueden marcar bancos por separado. Reset, TAP, pausa, ajustes manuales o interrupciones de audio invalidan la referencia correspondiente. Para aplicar esta función sin ZIP basta reemplazar SoinuState.kt, SoinuController.kt y MainActivity.kt del paquete Java existente. Detalles, límites y pruebas en validacion/SYNC.md; pendiente escucha y prueba en Android real antes de distribuir el APK actualizado.
