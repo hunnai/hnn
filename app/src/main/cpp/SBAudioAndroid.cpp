@@ -14,6 +14,7 @@
 
 namespace {
 constexpr int MAX_FRAMES = 8192;
+static_assert(std::atomic<uint32_t>::is_always_lock_free, "Audio IO counters must be lock-free");
 void checked(oboe::Result result, const char *message) {
     if (result != oboe::Result::OK)
         throw std::runtime_error(std::string(message) + ": " + oboe::convertToText(result));
@@ -25,6 +26,9 @@ class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioSt
     std::array<float, MAX_FRAMES> inLeft{}, inRight{}, outLeft{}, outRight{};
     std::atomic<int32_t> error{0};
     int inputChannels = 1;
+    int requestedInputDevice = 0, requestedOutputDevice = 0;
+    // Contadores de diagnóstico: atómicos de 32 bits, sin logs en el callback.
+    std::atomic<uint32_t> requestedFrames{0}, receivedFrames{0}, emptyReads{0}, activeReads{0};
 public:
     ~Session() { stop(); SBEngineDestroy(engine); }
     void stop() {
@@ -33,6 +37,10 @@ public:
     }
     void start(int inputDevice, int outputDevice, double advance) {
         stop(); error.store(0);
+        requestedInputDevice = inputDevice;
+        requestedOutputDevice = outputDevice;
+        requestedFrames.store(0); receivedFrames.store(0);
+        emptyReads.store(0); activeReads.store(0);
         try {
             oboe::AudioStreamBuilder out;
             out.setDirection(oboe::Direction::Output)
@@ -53,7 +61,7 @@ public:
                 ->setFormat(oboe::AudioFormat::Float)->setFormatConversionAllowed(true)
                 ->setSampleRate(rate)
                 ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
-                ->setInputPreset(oboe::InputPreset::Unprocessed)
+                ->setInputPreset(inputDevice > 0 ? oboe::InputPreset::Generic : oboe::InputPreset::Unprocessed)
                 ->setErrorCallback(this);
             if (inputDevice > 0) in.setDeviceId(inputDevice);
             in.setChannelCount(inputDevice > 0 ? 2 : 1);
@@ -92,6 +100,7 @@ public:
             std::fill_n(out, frames * 2, 0.0f); error.store(-1);
             return oboe::DataCallbackResult::Stop;
         }
+        requestedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
         auto result = input->read(interleaved.data(), frames, 0);
         if (!result) {
             std::fill_n(out, frames * 2, 0.0f);
@@ -103,20 +112,40 @@ public:
             std::fill_n(out, frames * 2, 0.0f); error.store(-2);
             return oboe::DataCallbackResult::Stop;
         }
+        receivedFrames.fetch_add(static_cast<uint32_t>(received), std::memory_order_relaxed);
+        if (received == 0) emptyReads.fetch_add(1, std::memory_order_relaxed);
+        bool active = false;
         for (int i = 0; i < frames; ++i) {
             inLeft[i] = i < received ? interleaved[i * inputChannels] : 0.0f;
             inRight[i] = i < received
                 ? interleaved[i * inputChannels + (inputChannels > 1 ? 1 : 0)] : 0.0f;
         }
+        for (int i = 0; i < received && !active; ++i)
+            active = std::fabs(inLeft[i]) > 1e-5f || std::fabs(inRight[i]) > 1e-5f;
+        if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
         SBEngineProcess(engine, inLeft.data(), inRight.data(), outLeft.data(), outRight.data(), frames);
         for (int i = 0; i < frames; ++i) {
             out[i * 2] = outLeft[i]; out[i * 2 + 1] = outRight[i];
         }
         return oboe::DataCallbackResult::Continue;
     }
-    std::array<double, 37> snapshot() {
-        std::array<double, 37> values{};
+    std::array<double, 50> snapshot() {
+        // Los primeros 37 campos conservan su significado y orden.
+        std::array<double, 50> values{};
         values[3] = error.load();
+        values[37] = requestedInputDevice;
+        values[38] = input ? input->getDeviceId() : 0;
+        values[39] = requestedOutputDevice;
+        values[40] = output ? output->getDeviceId() : 0;
+        values[41] = input ? input->getChannelCount() : 0;
+        values[42] = output ? output->getChannelCount() : 0;
+        values[43] = input ? static_cast<int>(input->getAudioApi()) : 0;
+        values[44] = output ? static_cast<int>(output->getAudioApi()) : 0;
+        values[45] = requestedFrames.load(std::memory_order_relaxed);
+        values[46] = receivedFrames.load(std::memory_order_relaxed);
+        values[47] = emptyReads.load(std::memory_order_relaxed);
+        values[48] = input ? static_cast<int>(input->getInputPreset()) : 0;
+        values[49] = activeReads.load(std::memory_order_relaxed);
         if (!engine) return values;
         SBSnapshot header{}; SBBankSnapshot banks[6]{};
         SBEngineReadSnapshot(engine, &header, banks);

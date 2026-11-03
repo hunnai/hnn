@@ -255,7 +255,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                     try {
                         while (state.audioRunning && handle != 0L) {
                             val snapshot = NativeAudio.snapshot(handle)
-                            check(snapshot.size == 37) { "Respuesta del motor incompleta" }
+                            check(snapshot.size >= 37) { "Respuesta del motor incompleta" }
                             check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado." }
                             audioClock = snapshot[1]
                             audioRate = snapshot[0]
@@ -289,10 +289,20 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             if (packets.isNotEmpty()) analysis.trySend(
                                 AnalysisBatch(generation, snapshot[0], state.autoRange, packets)
                             )
-                            if (state.mode == TempoMode.AUTOMATIC && now - lastDiagnostic >= 2_000_000_000L) {
+                            if (now - lastDiagnostic >= 2_000_000_000L) {
                                 lastDiagnostic = now
+                                if (snapshot.size >= 50) {
+                                    android.util.Log.d("SoinuUSB",
+                                        "IO entradaSolicitada=${snapshot[37].toInt()} entradaAbierta=${snapshot[38].toInt()} " +
+                                        "salidaSolicitada=${snapshot[39].toInt()} salidaAbierta=${snapshot[40].toInt()} " +
+                                        "canalesEntrada=${snapshot[41].toInt()} canalesSalida=${snapshot[42].toInt()} " +
+                                        "apiEntrada=${snapshot[43].toInt()} apiSalida=${snapshot[44].toInt()} " +
+                                        "solicitadas=${snapshot[45].toLong()} recibidas=${snapshot[46].toLong()} " +
+                                        "lecturasVacias=${snapshot[47].toLong()} perfil=${snapshot[48].toInt()} " +
+                                        "bloquesConSenal=${snapshot[49].toLong()} pico=${snapshot[2]}")
+                                }
                                 val automatic = latest?.takeIf { it.generation == generation }
-                                android.util.Log.d("SoinuBPM",
+                                if (state.mode == TempoMode.AUTOMATIC) android.util.Log.d("SoinuBPM",
                                     "Hz=${snapshot[0]} retraso=${automatic?.let { (snapshot[1] - it.end) / snapshot[0] }} " +
                                     "perdidasMotor=${snapshot[4].toLong()} perdidasCola=${queueDrops.get()} " +
                                     "saltos=${automatic?.gaps} calculoMS=${automatic?.milliseconds} " +
