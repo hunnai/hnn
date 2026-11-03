@@ -31,7 +31,7 @@ internal class PhaseSynchronizer(
     private val bpm: Double,
     private val rate: Double,
     private val referenceClock: Double,
-    private val referenceAdvanceMS: Double
+    private var referenceAdvanceMS: Double
 ) {
     private data class Observation(val time: Double, var errorMS: Double)
     private val observations = java.util.ArrayDeque<Observation>()
@@ -39,6 +39,7 @@ internal class PhaseSynchronizer(
     private var lastTimestamp = Double.NEGATIVE_INFINITY
     private var lastCorrection = Double.NEGATIVE_INFINITY
     private var observedAdvanceMS = referenceAdvanceMS
+    private var manualHoldUntil = Double.NEGATIVE_INFINITY
     var tracking = false; private set
 
     init {
@@ -61,7 +62,20 @@ internal class PhaseSynchronizer(
         if (tempo != null && usable(tempo, clock)) referencePhase = wrap(phase(referenceClock, tempo))
     }
 
+    fun shiftReference(milliseconds: Double, clock: Double) {
+        if (!milliseconds.isFinite() || !clock.isFinite()) return
+        // Misma cuantización que SBEngineNudgeBank (round de C, incluidos empates).
+        val frames = kotlin.math.floor(kotlin.math.abs(milliseconds) * rate / 1000 + .5) *
+            kotlin.math.sign(milliseconds)
+        val appliedMS = frames * 1000 / rate
+        referenceAdvanceMS += appliedMS
+        observedAdvanceMS += appliedMS
+        // Espera un snapshot posterior al comando antes de medir de nuevo la fase.
+        manualHoldUntil = clock + .1 * rate
+    }
+
     fun propose(tempo: TempoEstimate?, clock: Double, currentAdvanceMS: Double): Double? {
+        if (clock < manualHoldUntil) return null
         if (tempo == null || !currentAdvanceMS.isFinite() || !usable(tempo, clock)) {
             observations.clear()
             tracking = false

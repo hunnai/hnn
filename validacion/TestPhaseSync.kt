@@ -70,6 +70,66 @@ fun main() {
         println("PASS SYNC variable tempo 44.1 kHz with 200-ms delayed estimates: max phase error %.3f ms".format(maximum))
     }
 
+    // Ajuste manual: SYNC mantiene la nueva posición, también a 44,1 kHz.
+    for (sampleRate in listOf(48000.0, 44100.0)) {
+        val base = 20 * sampleRate
+        val follower = PhaseSynchronizer(120.0, sampleRate, base, 17.0)
+        follower.prime(TempoEstimate(120.0, base, 1.0, base), base)
+        var advance = 17.0
+        for (step in 1..8) {
+            val clock = base + step * .5 * sampleRate
+            check(follower.propose(TempoEstimate(120.0, base, 1.0, clock), clock, advance) == null)
+        }
+        check(follower.tracking)
+        val manualClock = base + 4 * sampleRate
+        for (delta in listOf(1.0, 1.0, -1.0, 1.0, 1.0, -1.0)) {
+            follower.shiftReference(delta, manualClock)
+            val oldSnapshot = advance
+            check(follower.propose(TempoEstimate(120.0, base, 1.0, manualClock + .05 * sampleRate),
+                manualClock + .05 * sampleRate, oldSnapshot) == null)
+            check(follower.tracking)
+            val frames = floor(abs(delta) * sampleRate / 1000 + .5) * sign(delta)
+            advance += frames * 1000 / sampleRate
+        }
+        for (step in 9..100) {
+            val clock = base + step * .5 * sampleRate
+            check(follower.propose(TempoEstimate(120.0, base, 1.0, clock), clock, advance) == null) {
+                "SYNC tried to undo manual offset at $sampleRate Hz"
+            }
+        }
+        check(follower.tracking)
+        println("PASS SYNC manual reference $sampleRate Hz: repeated +/− shifts preserved; stale snapshot ignored; no automatic undo")
+    }
+
+    run {
+        val base = 20 * rate
+        val follower = PhaseSynchronizer(119.8, rate, base, 0.0)
+        follower.prime(estimate(120.0, base), base)
+        var advance = 0.0
+        var manualShift = 0.0
+        var maximum = 0.0
+        var correctionsAfterManual = 0
+        for (step in 1..160) {
+            val clock = base + step * .5 * rate
+            if (step == 40) {
+                follower.shiftReference(15.0, clock)
+                advance += 15.0
+                manualShift += 15.0
+            }
+            val tempo = estimate(120.0, clock)
+            val delta = follower.propose(tempo, clock, advance)
+            if (delta != null) {
+                advance += round(delta * rate / 1000) * 1000 / rate
+                follower.accepted(clock)
+                if (step > 40) correctionsAfterManual++
+            }
+            if (step > 45) maximum = max(maximum, abs(wrap((clock - base) * (120 - 119.8) /
+                (60 * rate) - (advance - manualShift) * 119.8 / 60000)) * 60000 / 119.8)
+        }
+        check(correctionsAfterManual > 0 && maximum < 6)
+        println("PASS SYNC manual reference while drifting: automatic corrections continue around the new +15-ms target")
+    }
+
     val start = 20 * rate
     val steady = PhaseSynchronizer(120.0, rate, start, 83.0)
     steady.prime(estimate(120.0, start), start)

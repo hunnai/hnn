@@ -44,7 +44,8 @@ fun main() {
     println("PASS SYNC controls: hold+AUTO toggles per bank, release suppressed, independent bounded phase corrections")
 
     controller.manualNudge(0)
-    check(controller.state.syncedBanks == setOf(1))
+    check(controller.state.syncedBanks == setOf(0, 1))
+    check(controller.state.syncTrackingBanks == setOf(0, 1))
     controller.resetTempo()
     check(controller.state.syncedBanks.isEmpty() && controller.state.syncTrackingBanks.isEmpty())
     controller.state = controller.state.copy(tempo = TempoEstimate(120.0, 0.0, 1.0, controller.audioClock))
@@ -67,5 +68,5 @@ fun main() {
     gesture(0)
     controller.sessionEnd()
     check(!controller.state.audioRunning && controller.state.syncedBanks.isEmpty())
-    println("PASS SYNC controls: manual adjustment, RESET, TAP, pause and audio stop clear appropriate references")
+    println("PASS SYNC controls: manual per-bank adjustment preserves SYNC; RESET, TAP, pause and stop clear references")
 }
