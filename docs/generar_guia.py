@@ -134,7 +134,7 @@ def screen(x, top, width, settings=False):
         rect(24,1348,326,130,CTRL,colors.HexColor('#665B71'))
         rect(368,1348,326,130,CTRL,colors.HexColor('#665B71'))
         label('<<',187,1428,36,True);label('>>',531,1428,36,True)
-        for m,px,py in [(1,680,266),(2,282,376),(3,218,791),(4,448,791),(5,322,638),(6,666,638),(7,360,1410)]:mark(m,px,py)
+        for m,px,py in [(1,680,266),(2,282,376),(3,678,791),(4,218,791),(5,322,638),(6,666,638),(7,360,1410)]:mark(m,px,py)
     else:
         label('Ajustes',40,158,49);label('Cerrar ×',548,155,27)
         label('Desfase actual: +43 ms',40,275,39)
