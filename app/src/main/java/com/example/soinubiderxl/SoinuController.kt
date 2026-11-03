@@ -151,6 +151,13 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
     private fun usbRoute(): Pair<AudioDeviceInfo?, AudioDeviceInfo?> {
         val inputs = manager.getDevices(AudioManager.GET_DEVICES_INPUTS).filter(::isUsb)
         val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter(::isUsb)
+        android.util.Log.d("SoinuUSB", "USB: entradas=${inputs.size}, salidas=${outputs.size}")
+        (inputs + outputs).forEach { device ->
+            android.util.Log.d("SoinuUSB",
+                "${if (device.isSource) "ENTRADA" else "SALIDA"} ${device.productName} " +
+                "id=${device.id} canales=${device.channelCounts.contentToString()} " +
+                "frecuencias=${device.sampleRates.contentToString()} formatos=${device.encodings.contentToString()}")
+        }
         if (inputs.isEmpty() && outputs.isEmpty()) return null to null
         for (input in inputs) {
             val output = outputs.firstOrNull {
