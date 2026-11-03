@@ -19,11 +19,11 @@ pdfmetrics.registerFont(TTFont('Guide', str(FONT / 'DejaVuSans.ttf')))
 pdfmetrics.registerFont(TTFont('GuideBold', str(FONT / 'DejaVuSans-Bold.ttf')))
 pdfmetrics.registerFontFamily('Guide', normal='Guide', bold='GuideBold')
 W, H = A4
-INK = colors.HexColor('#25212F')
-MUTED = colors.HexColor('#625B6B')
-PURPLE = colors.HexColor('#704D98')
-PALE = colors.HexColor('#F3EFF8')
-BORDER = colors.HexColor('#E2DBEA')
+INK = colors.HexColor('#29241F')
+MUTED = colors.HexColor('#655B51')
+ACCENT = colors.HexColor('#B34600')
+PALE = colors.HexColor('#FFF2E8')
+BORDER = colors.HexColor('#E8D7C9')
 BG = colors.HexColor('#19171F')
 CTRL = colors.HexColor('#352D40')
 LIT = colors.HexColor('#B08ADC')
@@ -55,7 +55,7 @@ def rounded(x, top, width, height, fill, stroke=None, radius=10):
     c.roundRect(x, H - top - height, width, height, radius, fill=1, stroke=bool(stroke))
 
 def badge(label, x, top, r=10):
-    c.setFillColor(PURPLE)
+    c.setFillColor(ACCENT)
     c.circle(x, H - top, r, fill=1, stroke=0)
     c.setFillColor(colors.white)
     c.setFont('GuideBold', r * 1.05)
@@ -66,7 +66,7 @@ def header(subtitle, page):
     text(subtitle, 35, 65, 12, MUTED)
     c.setStrokeColor(BORDER)
     c.line(35, H-89, W-35, H-89)
-    text('GUÍA DE USO · ANDROID', W-191, 35, 8.3, PURPLE, True)
+    text('GUÍA DE USO · ANDROID', W-191, 35, 8.3, ACCENT, True)
     c.setStrokeColor(BORDER)
     c.line(35, 31, W-35, 31)
     text('Versión con SYNC · noviembre de 2026', 35, H-25, 7.7, MUTED)
@@ -94,9 +94,11 @@ def screen(x, top, width, settings=False):
         c.setFillColor(color)
         (c.drawCentredString if center else c.drawString)(px, 1600-py, s)
     def mark(s, px, py):
-        c.setFillColor(LIT)
-        c.circle(px, 1600-py, 29, fill=1, stroke=0)
-        label(str(s), px, py+11, 33, True, BG, True)
+        c.setFillColor(ACCENT)
+        c.setStrokeColor(colors.white)
+        c.setLineWidth(4)
+        c.circle(px, 1600-py, 29, fill=1, stroke=1)
+        label(str(s), px, py+11, 33, True, colors.white, True)
     rect(0, 0, 720, 1600, BG, colors.HexColor('#655C70'), 28)
     label('19:11' if not settings else '19:12', 43, 43, 25, bold=True)
     label('84 %', 607, 43, 20)
@@ -189,7 +191,7 @@ def screen(x, top, width, settings=False):
     c.restoreState()
     return height
 
-def arrow(x1, top1, x2, top2, color=PURPLE):
+def arrow(x1, top1, x2, top2, color=ACCENT):
     c.setStrokeColor(color);c.setFillColor(color);c.setLineWidth(1.7)
     y1=H-top1;y2=H-top2;c.line(x1,y1,x2,y2)
     a=__import__('math').atan2(y2-y1,x2-x1)
@@ -201,7 +203,7 @@ def mini_button(label,x,top,width=52,height=42):
 
 header('Empieza a crear loops',1)
 rounded(35,101,W-70,80,PALE,radius=10)
-text('Antes de empezar',48,110,10.6,PURPLE,True)
+text('Antes de empezar',48,110,10.6,ACCENT,True)
 text('Con tarjeta: música → tarjeta USB → móvil (OTG)',48,130,11.2,bold=True)
 paragraph('El audio se inicia al abrir; permite el micrófono. Escucha desde la tarjeta o usa el micro del móvil.',48,150,W-96,9.2,12)
 screen(35,190,207)
@@ -220,42 +222,42 @@ c.showPage()
 
 header('Ajustes y gestos con los dedos',2)
 screen(35,123,160,True)
-paragraph('Ejemplo: tus valores pueden ser distintos. Abre Ajustes con la rueda dentada.',38,489,162,8.7,11.5,MUTED)
+paragraph('Valores de ejemplo. Abre Ajustes con la rueda dentada.',38,489,162,8.7,11.5,MUTED)
 callout('A','Desfase actual', 'Es el ajuste del banco mantenido o del último que has puesto a sonar. <b>Usar valor actual</b> guarda ese número.',123,x=236,width=323,size=10)
 callout('B','Desfase guardado', 'Se aplica a las próximas grabaciones. <b>Resetear valor</b> guarda 0 ms; no desplaza los loops ya grabados.',206,x=236,width=323,size=10)
 callout('C','Rango BPM Auto', 'Elige el mínimo y el máximo que buscará AUTO. Van de 10 en 10 y mantienen una separación de al menos <b>20 BPM</b>.',290,x=236,width=323,size=10)
 callout('D','Apariencia', 'Toca una muestra para cambiar las dos pantallas. Los LED mantienen sus colores verde, ámbar y rojo.',373,x=236,width=323,size=10)
 callout('E','Transparencia', '<b>0 %:</b> relleno opaco. <b>100 %:</b> relleno transparente. El texto y los bordes siguen visibles.',440,x=236,width=323,size=10)
-text('Tres gestos que conviene conocer',35,531,16,bold=True)
-text('En los gestos de dos dedos: mantén 1 y toca 2 sin soltar.',35,554,9.4,MUTED)
-cardtop=578;cardheight=195;cardwidth=(W-90)/3
+text('Tres gestos que conviene conocer',35,521,16,bold=True)
+text('En los gestos de dos dedos: mantén 1 y toca 2 sin soltar.',35,544,9.4,MUTED)
+cardtop=568;cardheight=195;cardwidth=(W-90)/3
 for i,title in enumerate(['Dividir y restaurar','Ajustar un banco','Activar / quitar SYNC']):
     x=35+i*(cardwidth+10)
     rounded(x,cardtop,cardwidth,cardheight,PALE,BORDER,9)
-    text(title,x+11,cardtop+11,10.5,PURPLE,True)
+    text(title,x+11,cardtop+11,10.5,ACCENT,True)
     if i==0:
         mini_button('4 beats',x+51,cardtop+48,65,52)
         badge(1,x+83,cardtop+78,8)
         arrow(x+34,cardtop+78,x+34,cardtop+38)
         arrow(x+134,cardtop+78,x+134,cardtop+113)
-        text('÷2',x+16,cardtop+57,9,PURPLE,True)
-        text('×2',x+137,cardtop+87,9,PURPLE,True)
+        text('÷2',x+16,cardtop+57,9,ACCENT,True)
+        text('×2',x+137,cardtop+87,9,ACCENT,True)
         body='Con el banco sonando, arrastra el dedo <b>fuera por arriba</b>: mitad de duración. <b>Fuera por abajo:</b> doble, hasta la original. Un cambio por gesto.'
     elif i==1:
-        mini_button('Banco',x+12,cardtop+56,64,46)
+        mini_button('4 beats',x+12,cardtop+56,64,46)
         mini_button('<<  >>',x+94,cardtop+56,58,46)
         badge(1,x+44,cardtop+99,8);badge(2,x+123,cardtop+99,8)
         arrow(x+80,cardtop+78,x+89,cardtop+78)
         body='<b>Mantén el banco que suena.</b> Con otro dedo, toca una flecha. Solo se corrige ese banco. Si tenía SYNC, lo conserva con el nuevo desfase.'
     else:
-        mini_button('Banco',x+12,cardtop+56,64,46)
+        mini_button('4 beats',x+12,cardtop+56,64,46)
         mini_button('AUTO',x+94,cardtop+56,58,46)
         badge(1,x+44,cardtop+99,8);badge(2,x+123,cardtop+99,8)
         arrow(x+80,cardtop+78,x+89,cardtop+78)
         body='<b>Cuadra antes el loop.</b> Mantén su banco y toca AUTO. Repite para desactivar.<br/><b>SYNC…</b> espera; <b>SYNC</b> sigue el pulso. Dividir y usar flechas conserva SYNC.'
     height=paragraph(body,x+11,cardtop+116,cardwidth-22,9,12)
     assert height <= cardheight-121, (title,height)
-paragraph('<b>SYNC corrige pequeñas derivas, sin cambiar el BPM del loop.</b> Si falta una referencia fiable o el tempo cambia demasiado, queda en espera. Pausa, Reset BPM o TAP lo desactivan.',35,783,W-70,8.6,11.5,MUTED)
+paragraph('<b>SYNC corrige pequeñas derivas sin cambiar el BPM.</b> Espera si la referencia no es fiable o el tempo cambia demasiado. Pausa, Reset BPM y TAP lo desactivan. <b>Para SYNC, usa preferiblemente auriculares y una entrada directa de la música original: evita que vuelva a entrar el loop que reproduce la app.</b>',35,770,W-70,8.5,11.5,MUTED)
 c.save()
 print(OUTPUT)
 print('Páginas: 2 · bloques de texto:',len(boxes))
