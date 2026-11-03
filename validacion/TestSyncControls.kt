@@ -43,6 +43,19 @@ fun main() {
     check(controller.state.banks[0].bpm == 119.8 && controller.state.banks[1].bpm == 120.2)
     println("PASS SYNC controls: hold+AUTO toggles per bank, release suppressed, independent bounded phase corrections")
 
+    // El gesto real de resize suelta el banco, pero conserva ambos seguidores.
+    for (steps in listOf(1, 1, -1, -1)) {
+        controller.beginBank(0)
+        controller.resize(0, steps)
+        check(controller.state.heldBank == null)
+        check(controller.state.syncedBanks == setOf(0, 1))
+        check(controller.state.syncTrackingBanks == setOf(0, 1))
+        check(controller.state.banks[0].bpm == 119.8)
+        check(NativeAudio.calls.last().op == NativeAudio.RESIZE)
+        check(NativeAudio.calls.last().bank == 0)
+    }
+    println("PASS SYNC controls: divide/restore gesture preserves both phase followers and fixed BPM")
+
     controller.manualNudge(0)
     check(controller.state.syncedBanks == setOf(0, 1))
     check(controller.state.syncTrackingBanks == setOf(0, 1))

@@ -379,7 +379,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
             when (op) {
                 NativeAudio.NUDGE_ALL, NativeAudio.ERASE_ALL -> clearSync()
                 NativeAudio.NUDGE_BANK -> synchronizers[bank]?.shiftReference(value, audioClock)
-                NativeAudio.ERASE_BANK, NativeAudio.RESIZE, NativeAudio.TOGGLE -> clearSync(bank)
+                NativeAudio.ERASE_BANK, NativeAudio.TOGGLE -> clearSync(bank)
             }
         }
         if (!accepted && !fromSync) error("La cola de audio está ocupada. Vuelve a intentarlo.")

@@ -17,6 +17,7 @@ lib.SBEngineCreate.restype = c.c_void_p
 lib.SBEngineDestroy.argtypes = [c.c_void_p]
 lib.SBEngineArm.argtypes = [c.c_void_p, c.c_int, c.c_double, c.c_double]
 lib.SBEngineNudgeBank.argtypes = [c.c_void_p, c.c_int, c.c_double]
+lib.SBEngineResizeBank.argtypes = [c.c_void_p, c.c_int, c.c_int]
 lib.SBEngineProcess.argtypes = [c.c_void_p] + [c.POINTER(c.c_float)] * 4 + [c.c_uint32]
 lib.SBEngineReadSnapshot.argtypes = [c.c_void_p, c.POINTER(Snapshot), c.POINTER(Bank)]
 lib.SBEngineReadAnalysis.argtypes = [c.c_void_p, c.POINTER(c.c_float), c.c_uint32,
@@ -41,9 +42,9 @@ def step():
     lib.SBEngineReadSnapshot(engine, c.byref(header), banks)
     while lib.SBEngineReadAnalysis(engine, analysis, 1024, c.byref(start), c.byref(count)): pass
     return begin, list(left)
-def capture_phase():
+def capture_phase(blocks=20):
     sine = cosine = 0.0
-    for _ in range(20):
+    for _ in range(blocks):
         begin, samples = step()
         for i, value in enumerate(samples):
             angle = 2 * math.pi * 440 * (begin + i) / 48000
@@ -55,6 +56,17 @@ try:
     for _ in range(240): step()
     assert banks[0].state == 3
     phase = capture_phase()
+    for change, division in [(1, 1), (1, 2), (-1, 1), (-1, 0)]:
+        advance = banks[0].advance
+        assert lib.SBEngineResizeBank(engine, 0, change)
+        for _ in range(10): step()
+        measured = capture_phase(blocks=100)
+        # 440 Hz completa ciclos enteros en las mitades y cuartos de este loop.
+        assert abs(math.remainder(measured - phase, 2 * math.pi)) < 1e-4
+        assert banks[0].bpm == 120 and banks[0].advance == advance
+        assert banks[0].divisions == division
+        phase = measured
+    print('PASS SYNC native: divide/restore keeps playback phase, BPM and advance for the periodic fixture')
     for shift in [3.0, -2.0, 1.25, -3.0]:
         before_advance = banks[0].advance
         assert lib.SBEngineNudgeBank(engine, 0, shift)
