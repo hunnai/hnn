@@ -29,8 +29,8 @@ data class SoinuState(
 // No modifica BPM ni la velocidad de lectura. Todos los tiempos son muestras.
 internal class PhaseSynchronizer(
     private val bpm: Double,
-    private val rate: Double,
-    private val referenceClock: Double,
+    private var rate: Double,
+    private var referenceClock: Double,
     private var referenceAdvanceMS: Double
 ) {
     private data class Observation(val time: Double, var errorMS: Double)
@@ -60,6 +60,24 @@ internal class PhaseSynchronizer(
 
     fun prime(tempo: TempoEstimate?, clock: Double) {
         if (tempo != null && usable(tempo, clock)) referencePhase = wrap(phase(referenceClock, tempo))
+    }
+
+    // Esperar una referencia válida no cambia la elección SYNC ni su objetivo.
+    fun waitForReference() {
+        observations.clear()
+        lastTimestamp = Double.NEGATIVE_INFINITY
+        lastCorrection = Double.NEGATIVE_INFINITY
+        tracking = false
+    }
+
+    fun reconfigureRate(newRate: Double) {
+        require(newRate.isFinite() && newRate > 0)
+        if (newRate == rate) return
+        val ratio = newRate / rate
+        referenceClock *= ratio
+        manualHoldUntil *= ratio
+        rate = newRate
+        waitForReference()
     }
 
     fun shiftReference(milliseconds: Double, clock: Double) {

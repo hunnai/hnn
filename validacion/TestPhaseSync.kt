@@ -130,6 +130,29 @@ fun main() {
         println("PASS SYNC manual reference while drifting: automatic corrections continue around the new +15-ms target")
     }
 
+    // Un reset/pausa y un cambio de frecuencia conservan la referencia manual.
+    run {
+        var sampleRate = 48000.0
+        val follower = PhaseSynchronizer(120.0, sampleRate, 20.123*sampleRate, 17.0)
+        follower.prime(TempoEstimate(120.0,0.0,1.0,20.123*sampleRate),20.123*sampleRate)
+        var clock = 20.123*sampleRate
+        var advance = 17.0
+        for(step in 1..8) {
+            clock += .5*sampleRate
+            check(follower.propose(TempoEstimate(120.0,0.0,1.0,clock),clock,advance)==null)
+        }
+        check(follower.tracking)
+        follower.shiftReference(1.0,clock);advance+=1.0
+        follower.waitForReference();check(!follower.tracking)
+        follower.reconfigureRate(96000.0);clock*=2;sampleRate=96000.0
+        for(step in 1..12) {
+            clock += .5*sampleRate
+            check(follower.propose(TempoEstimate(120.0,0.0,1.0,clock),clock,advance)==null)
+        }
+        check(follower.tracking)
+        println("PASS SYNC waiting and 48→96 kHz restart: same manual target, fresh evidence and no spurious phase correction")
+    }
+
     val start = 20 * rate
     val steady = PhaseSynchronizer(120.0, rate, start, 83.0)
     steady.prime(estimate(120.0, start), start)

@@ -56,30 +56,118 @@ fun main() {
     }
     println("PASS SYNC controls: divide/restore gesture preserves both phase followers and fixed BPM")
 
+    for (sampleRate in listOf(48000.0, 44100.0, 96000.0)) {
+        val steady=SyncControlHarness()
+        steady.resume(sampleRate)
+        steady.audioClock=20*sampleRate
+        steady.state=SoinuState(audioRunning=true,
+            tempo=TempoEstimate(120.0,0.0,1.0,steady.audioClock),
+            banks=List(6) { LoopBankState(state=if(it<2) 3 else 0,bpm=120.0,advanceMS=17.0) })
+        for(index in 0..1) {steady.beginBank(index);steady.auto();steady.endBank(index)}
+        NativeAudio.calls.clear()
+        for(step in 1..8) steady.tick((20+step*.5)*sampleRate,
+            TempoEstimate(120.0,0.0,1.0,(20+step*.5)*sampleRate))
+        check(steady.state.syncTrackingBanks==setOf(0,1) && NativeAudio.calls.isEmpty())
+        for(kind in listOf("forward","forward","back","forward") + List(8) { "forward" }) {
+            val action=steady.beginAction(kind)
+            steady.actionRepeat(action);steady.endAction(action)
+            val call=NativeAudio.calls.last()
+            check(call.op==NativeAudio.NUDGE_ALL)
+            val frames=kotlin.math.floor(abs(call.value)*sampleRate/1000+.5)*kotlin.math.sign(call.value)
+            steady.state=steady.state.copy(banks=steady.state.banks.map {
+                it.copy(advanceMS=it.advanceMS+frames*1000/sampleRate)
+            })
+        }
+        check(steady.state.syncedBanks==setOf(0,1))
+        NativeAudio.calls.clear()
+        for(step in 9..30) steady.tick((20+step*.5)*sampleRate,
+            TempoEstimate(120.0,0.0,1.0,(20+step*.5)*sampleRate))
+        check(NativeAudio.calls.isEmpty()) { "Global manual offset was undone at $sampleRate Hz" }
+        // Órdenes rechazadas no cambian objetivos ni desactivan SYNC.
+        NativeAudio.accepted=false
+        repeat(5) { check(runCatching {steady.globalNudge(1.0)}.isFailure) }
+        NativeAudio.accepted=true;NativeAudio.calls.clear()
+        for(step in 31..42) steady.tick((20+step*.5)*sampleRate,
+            TempoEstimate(120.0,0.0,1.0,(20+step*.5)*sampleRate))
+        check(NativeAudio.calls.isEmpty() && steady.state.syncedBanks==setOf(0,1))
+        // Flecha individual en un loop pausado: el motor no la aplica.
+        steady.state=steady.state.copy(banks=steady.state.banks.mapIndexed { i,b ->if(i==0)b.copy(state=4)else b })
+        steady.beginBank(0)
+        val action=steady.beginAction("forward")
+        steady.actionRepeat(action);steady.endAction(action);steady.endBank(0)
+        check(NativeAudio.calls.isEmpty() && steady.state.syncedBanks==setOf(0,1))
+        println("PASS global arrow target $sampleRate Hz: two followers keep new offset, no automatic undo, rejected commands and paused-bank no-op")
+    }
+
     controller.manualNudge(0)
     check(controller.state.syncedBanks == setOf(0, 1))
     check(controller.state.syncTrackingBanks == setOf(0, 1))
+    // Flechas globales: conservar todos los seguidores y su nuevo objetivo.
+    val before = controller.state.banks.map { it.advanceMS }
+    for (delta in listOf(1.0, 1.0, -1.0, 1.0)) {
+        controller.globalNudge(delta)
+        check(controller.state.syncedBanks == setOf(0, 1))
+        controller.state = controller.state.copy(banks = controller.state.banks.map {
+            it.copy(advanceMS = it.advanceMS + delta)
+        })
+    }
+    check(controller.state.banks[0].advanceMS == before[0] + 2.0)
+    check(controller.state.banks[1].advanceMS == before[1] + 2.0)
+    println("PASS global arrows: both SYNC choices preserved through repeated positive/negative corrections")
+
     controller.resetTempo()
-    check(controller.state.syncedBanks.isEmpty() && controller.state.syncTrackingBanks.isEmpty())
-    controller.state = controller.state.copy(tempo = TempoEstimate(120.0, 0.0, 1.0, controller.audioClock))
-    gesture(0)
+    check(controller.state.syncedBanks == setOf(0, 1) && controller.state.syncTrackingBanks.isEmpty())
     controller.tap(100.0)
-    check(controller.state.mode == TempoMode.TAP && controller.state.syncedBanks.isEmpty())
-    controller.state = controller.state.copy(mode = TempoMode.AUTOMATIC,
-        tempo = TempoEstimate(120.0, 0.0, 1.0, controller.audioClock))
-    gesture(0)
+    check(controller.state.mode == TempoMode.TAP && controller.state.syncedBanks == setOf(0, 1))
+    NativeAudio.calls.clear()
+    controller.tick(controller.audioClock + rate, TempoEstimate(120.0, 0.0, 1.0, controller.audioClock + rate))
+    check(NativeAudio.calls.isEmpty() && controller.state.syncTrackingBanks.isEmpty())
+    controller.auto()
+    check(controller.state.mode == TempoMode.AUTOMATIC && controller.state.syncedBanks == setOf(0, 1))
+    println("PASS RESET/TAP/AUTO: SYNC remains enabled, waits without AUTO and resumes acquiring on return")
+
+    // Pausa/reanudación usan la orden de producción y no pierden la elección.
+    controller.bankPressed(0)
+    check(NativeAudio.calls.last().op == NativeAudio.TOGGLE)
+    check(controller.state.syncedBanks == setOf(0, 1))
     controller.state = controller.state.copy(banks = controller.state.banks.mapIndexed { i, bank ->
         if (i == 0) bank.copy(state = 4) else bank
     })
-    controller.tick(controller.audioClock + .5 * rate, controller.state.tempo!!)
-    check(controller.state.syncedBanks.isEmpty())
+    NativeAudio.calls.clear()
+    controller.tick(controller.audioClock + .5 * rate, TempoEstimate(120.0, 0.0, 1.0, controller.audioClock + .5 * rate))
+    check(controller.state.syncedBanks == setOf(0, 1))
+    check(NativeAudio.calls.none { it.bank == 0 })
+    // El gesto manual también permite quitar SYNC de un loop pausado.
     gesture(0)
-    check(controller.state.syncedBanks.isEmpty())
+    check(controller.state.syncedBanks == setOf(1))
+    gesture(0)
+    check(controller.state.syncedBanks == setOf(0, 1))
+    controller.bankPressed(0)
+    check(controller.state.syncedBanks == setOf(0, 1))
     controller.state = controller.state.copy(banks = controller.state.banks.mapIndexed { i, bank ->
         if (i == 0) bank.copy(state = 3) else bank
     })
-    gesture(0)
+
     controller.sessionEnd()
-    check(!controller.state.audioRunning && controller.state.syncedBanks.isEmpty())
-    println("PASS SYNC controls: manual per-bank adjustment preserves SYNC; RESET, TAP, pause and stop clear references")
+    check(!controller.state.audioRunning && controller.state.syncedBanks == setOf(0, 1))
+    check(controller.state.syncTrackingBanks.isEmpty())
+    controller.resume(96000.0)
+    check(controller.state.audioRunning && controller.state.syncedBanks == setOf(0, 1))
+    println("PASS pause/audio restart: SYNC retained; no paused-bank correction; manual toggle still available")
+
+    // Un borrado que el motor ignoraría (loop sonando) no quita SYNC.
+    controller.beginBank(0)
+    var action = controller.beginAction("erase")
+    NativeAudio.calls.clear();controller.actionTap(action);controller.endAction(action)
+    check(NativeAudio.calls.isEmpty() && controller.state.syncedBanks == setOf(0, 1))
+    controller.endBank(0)
+    controller.state = controller.state.copy(banks = controller.state.banks.mapIndexed { i, bank ->
+        if (i == 0) bank.copy(state = 4) else bank
+    })
+    controller.beginBank(0);action=controller.beginAction("erase")
+    controller.actionTap(action);controller.endAction(action);controller.endBank(0)
+    check(NativeAudio.calls.last().op == NativeAudio.ERASE_BANK && controller.state.syncedBanks == setOf(1))
+    action=controller.beginAction("erase");controller.actionHold(action);controller.endAction(action)
+    check(NativeAudio.calls.last().op == NativeAudio.ERASE_ALL && controller.state.syncedBanks.isEmpty())
+    println("PASS deletion: only actual erase requests discard the removed loop's SYNC")
 }

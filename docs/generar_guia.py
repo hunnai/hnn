@@ -211,10 +211,10 @@ paragraph('<b>LED:</b> nivel de entrada. Evita el rojo continuo.',39,551,180,8.9
 controls = [
     (1, 'Tempo', '<b>AUTO:</b> detecta el ritmo de la música.<br/><b>TAP:</b> marca al menos <b>8 pulsaciones</b>. Una pausa de más de 3 s reinicia la cuenta.', 136),
     (2, 'Grabar', 'Toca un botón vacío. Graba desde el siguiente pulso y se repite al terminar.<br/><b>1 beat = 1 pulso.</b>', 225),
-    (3, 'Pausar / reanudar', 'Toca un loop grabado para pausarlo o volver a reproducirlo.', 299),
+    (3, 'Pausar / reanudar', 'Un toque pausa o reanuda el loop. Conserva SYNC.', 299),
     (4, 'Borrar', '<b>Todos:</b> mantén <b>Borrar beats 2 s</b>.<br/><b>Uno:</b> pausa el loop, mantenlo y toca <b>Borrar beats</b> con otro dedo.', 357),
-    (5, 'Reset BPM', 'Mantén <b>Reset BPM 2 s</b>. Reinicia el tempo y SYNC; conserva los loops.', 430),
-    (6, 'Flechas', '<b>&lt;&lt; retrasa · &gt;&gt; adelanta.</b><br/>1 toque = 1 ms; mantenido, repite. Sin sujetar un loop, ajusta todos y desactiva SYNC.', 492),
+    (5, 'Reset BPM', 'Mantén <b>Reset BPM 2 s</b>. Reinicia el tempo; conserva los loops y SYNC.', 430),
+    (6, 'Flechas', '<b>&lt;&lt; retrasa · &gt;&gt; adelanta.</b><br/>1 toque = 1 ms; mantenido, repite. Sin sujetar un loop, ajusta todos. Conserva SYNC con el nuevo desfase.', 492),
 ]
 for index,(number,title,body,top) in enumerate(controls):
     end = callout(number,title,body,top,x=252,width=307,size=10,leading=13)
@@ -251,7 +251,7 @@ for i,title in enumerate(['Dividir y restaurar','Ajustar un loop','Activar / qui
     height=paragraph(body,x+10,cardtop+81,cardwidth-20,8.9,10.5)
     assert height <= cardheight-87, (title,height)
 
-note_height=paragraph('<b>SYNC</b> corrige pequeñas derivas sin cambiar el BPM. Dividir lo conserva; pausa, TAP o Reset BPM lo desactivan.<br/>'
+note_height=paragraph('<b>SYNC</b> corrige la fase sin cambiar BPM. Solo se quita con el gesto; borrar el loop también lo elimina.<br/>'
           'Usa preferiblemente una <b>entrada directa de la música original</b> para evitar que vuelva a entrar el loop que está reproduciendo la app.',
           35,774,W-70,8.7,11,MUTED)
 assert 774+note_height <= H-34, note_height
