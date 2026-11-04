@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 namespace oboe {
+constexpr int kUnspecified = 0;
 enum class Direction { Output, Input };
 enum class SharingMode { Shared };
 enum class PerformanceMode { None, LowLatency };
@@ -30,6 +31,7 @@ struct FakeRead {
     Result error() const { return Result::OK; }
 };
 inline int readCalls = 0;
+inline int nativeUsbRate = 96000;
 class AudioStream {
 public:
     Direction direction = Direction::Output;
@@ -71,7 +73,9 @@ public:
     AudioStreamBuilder *setDeviceId(int v) { settings.device=v; return this; }
     AudioStreamBuilder *setInputPreset(InputPreset v) { settings.preset=v; return this; }
     Result openStream(std::shared_ptr<AudioStream> &out) {
-        out = std::make_shared<AudioStream>(settings); opened.push_back(out); return Result::OK;
+        out = std::make_shared<AudioStream>(settings);
+        if (out->rate == kUnspecified) out->rate = out->device > 0 ? nativeUsbRate : 48000;
+        opened.push_back(out); return Result::OK;
     }
 };
 }

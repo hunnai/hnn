@@ -49,14 +49,18 @@ static void testSession(int inputDevice) {
     oboe::opened.clear();
     auto session=std::make_unique<Session>();
     session->start(inputDevice,inputDevice?261:0,0);
-    assert(oboe::opened.size()==2);
-    auto output=oboe::opened[0];auto input=oboe::opened[1];
+    const int opens = inputDevice && (oboe::nativeUsbRate < 8000 || oboe::nativeUsbRate > 192000) ? 3 : 2;
+    assert(oboe::opened.size()==static_cast<size_t>(opens));
+    auto output=oboe::opened[opens-2];auto input=oboe::opened[opens-1];
     assert(input->callback && output->callback);
     assert(input->getPerformanceMode()==(inputDevice?oboe::PerformanceMode::None:oboe::PerformanceMode::LowLatency));
     assert(output->getPerformanceMode()==oboe::PerformanceMode::LowLatency);
     assert(input->getDeviceId()==inputDevice);
     assert(input->getInputPreset()==(inputDevice?oboe::InputPreset::Generic:oboe::InputPreset::Unprocessed));
-    const int frames = inputDevice ? 1538 : 256;
+    const int sampleRate = inputDevice && opens==2 ? oboe::nativeUsbRate : 48000;
+    assert(input->getSampleRate()==sampleRate && output->getSampleRate()==sampleRate);
+    assert(session->snapshot()[0]==sampleRate);
+    const int frames = inputDevice ? (sampleRate==96000?3076:1538) : 256;
     std::vector<float> out(frames * 2), data(frames * 2);
     int callbacks = 0;
     // La salida puede arrancar antes de la primera entrega de captura.
@@ -66,10 +70,10 @@ static void testSession(int inputDevice) {
     uint64_t position=0;bool audible=false;
     for(int block=0;block<600;++block) {
         for(int i=0;i<frames;++i) {
-            float value=float(.2*std::sin(2*3.141592653589793*440*(position+i)/48000));
+            float value=float(.2*std::sin(2*3.141592653589793*440*(position+i)/sampleRate));
             if(inputDevice) {data[i*2]=value;data[i*2+1]=value*.5f;} else data[i]=value;
         }
-        // Captura por fragmentos de hasta 256; salida USB de 1538, como el registro real.
+        // Captura por fragmentos de hasta 256; salida USB nativa de 3076 (96 kHz), evitando la conversión a 1538/48 kHz.
         for(int offset=0;offset<frames;) {
             const int chunk=std::min(256,frames-offset);
             assert(input->callback->onAudioReady(input.get(),data.data()+offset*input->channels,chunk)==oboe::DataCallbackResult::Continue);
@@ -90,10 +94,15 @@ static void testSession(int inputDevice) {
     assert(audible && session->snapshot()[7]==3 && session->snapshot()[9]==120);
     assert(oboe::readCalls==0); // El transporte simulado read() siempre devuelve cero.
     session->stop();session->start(inputDevice,inputDevice?261:0,0);
-    output=oboe::opened[2];
+    output=oboe::opened[2*opens-2];
     output->callback->onAudioReady(output.get(),out.data(),256);
     auto snapshot=session->snapshot();
     assert(snapshot[46]==0 && snapshot[49]==0 && snapshot[2]==0);
     std::cout<<"PASS Session "<<(inputDevice?"USB stereo":"phone mono")<<": callbacks feed real C engine, record/play, fixed routing and cleared capture on restart; no read() calls\n";
 }
-int main() {testRing();testSession(266);testSession(0);}
+int main() {
+    testRing(); testSession(266); testSession(0);
+    oboe::nativeUsbRate=384000;
+    testSession(266);
+    std::cout<<"PASS native rate: USB 96 kHz and phone 48 kHz shared with input/engine; fallback to 48 kHz beyond engine range\n";
+}

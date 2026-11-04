@@ -13,3 +13,5 @@ Interpretación prevista: frames recibidos crecen pero bloquesConSenal queda en 
 Validación: C++17 -Wall -Wextra -Werror -fsyntax-only con cabeceras oficiales Oboe 1.9.0 y JNI OpenJDK 21. Oboe descargado del Maven oficial de Google y SHA-1 verificado. Controlador y modelos Kotlin compilados con bibliotecas Android/AndroidX y stub Android API35. No se ha enlazado NDK/APK ni probado Audio 10, Behringer u otras tarjetas reales. La modificación de perfil es una prueba, no una solución confirmada para la Audio 10.
 
 Actualización posterior: la lectura de entrada desde la salida se sustituye por entrega mediante callback y anillo SPSC. Véase `usb-callback/README.md` para las semánticas actuales de los contadores, campos añadidos y pruebas. El perfil USB sigue siendo Generic y la ruta se solicita por ID; no se ha confirmado la solución en hardware.
+
+Nueva prueba: negociar frecuencia nativa de salida y compartirla con entrada/motor, con retorno a 48 kHz fuera del rango del motor. Ver usb-callback/README.md para evidencia del registro, validación y límites.

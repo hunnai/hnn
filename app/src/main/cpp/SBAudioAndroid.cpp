@@ -95,12 +95,20 @@ public:
                 ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
                 ->setFormat(oboe::AudioFormat::Float)->setFormatConversionAllowed(true)
                 ->setChannelCount(2)->setChannelConversionAllowed(true)
-                ->setSampleRate(48000)
+                ->setSampleRate(oboe::kUnspecified)
                 ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
                 ->setDataCallback(this)->setErrorCallback(this);
             if (outputDevice > 0) out.setDeviceId(outputDevice);
             checked(out.openStream(output), "No se pudo abrir la salida");
-            const int rate = output->getSampleRate();
+            int rate = output->getSampleRate();
+            // Preferir la frecuencia nativa dentro del rango del motor.
+            // Una tarjeta de alta resolución puede anunciar más de 192 kHz.
+            if (rate < 8000 || rate > 192000) {
+                output->close(); output.reset();
+                out.setSampleRate(48000);
+                checked(out.openStream(output), "No se pudo abrir la salida a una frecuencia compatible");
+                rate = output->getSampleRate();
+            }
             oboe::AudioStreamBuilder in;
             in.setDirection(oboe::Direction::Input)
                 ->setSharingMode(oboe::SharingMode::Shared)

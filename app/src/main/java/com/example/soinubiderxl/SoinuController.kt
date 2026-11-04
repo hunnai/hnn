@@ -293,7 +293,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                 lastDiagnostic = now
                                 if (snapshot.size >= 50) {
                                     android.util.Log.d("SoinuUSB",
-                                        "IO entradaSolicitada=${snapshot[37].toInt()} entradaAbierta=${snapshot[38].toInt()} " +
+                                        "IO Hz=${snapshot[0]} entradaSolicitada=${snapshot[37].toInt()} entradaAbierta=${snapshot[38].toInt()} " +
                                         "salidaSolicitada=${snapshot[39].toInt()} salidaAbierta=${snapshot[40].toInt()} " +
                                         "canalesEntrada=${snapshot[41].toInt()} canalesSalida=${snapshot[42].toInt()} " +
                                         "apiEntrada=${snapshot[43].toInt()} apiSalida=${snapshot[44].toInt()} " +

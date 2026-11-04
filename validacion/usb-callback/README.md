@@ -12,7 +12,7 @@ Snapshot JNI: se conservan los campos 0–49. Ahora `recibidas` cuenta frames en
 
 Pruebas ejecutadas:
 - Mono/estéreo, relleno de falta de datos, exceso de capacidad, vuelta del índice del anillo y orden entre dos hilos con 200000 frames.
-- Session USB estéreo: fragmentos de entrada de hasta 256 frames frente a salida de 1538, como la ráfaga observada; motor C real graba y reproduce, señal finita/acotada y sin pérdidas de captura ni de análisis en la simulación.
+- Session USB estéreo: fragmentos de entrada de hasta 256 frames frente a salida de 3076 a 96 kHz, como la ráfaga física observada; motor C real graba y reproduce, señal finita/acotada y sin pérdidas de captura ni de análisis en la simulación.
 - Session de micrófono mono; selección de Generic solo en USB y Unprocessed en el teléfono; IDs conservados y captura limpia al reiniciar, manteniendo loops completados.
 - Las mismas pruebas con AddressSanitizer y UndefinedBehaviorSanitizer sin errores.
 - C++ comprobado contra cabeceras oficiales Oboe 1.9.0 y JNI; controlador Kotlin compilado contra bibliotecas Android/AndroidX y stub Android API35.
@@ -34,3 +34,11 @@ Pendiente: enlace NDK/APK y pruebas Audio 10, Behringer y micrófono reales. Los
 El siguiente registro real del Redmi / Audio 10 conserva `callbacksEntrada=0` y `recibidas=0` durante unos 82 segundos. No demuestra un fallo del anillo, ya que nunca entra un bloque de captura. `estadoEntrada=4` es el estado reportado por Oboe: en 1.9.0 AudioStreamAAudio::getState puede convertir STARTING a STARTED como workaround; no confirma por sí solo que el hardware haya comenzado a producir datos.
 
 Se cambia únicamente la solicitud de rendimiento de entrada USB a PerformanceMode::None; micrófono y salida conservan LowLatency. Continúan el mismo perfil Generic, formato float, sample rate, selección por ID y callback. Es una prueba de la ruta normal de captura, no una causa confirmada ni una garantía de corrección. La prueba Session con transporte simulado verifica estas tres selecciones de modo, además de los casos previos. Sintaxis verificada de nuevo con Oboe 1.9.0 real; pendiente hardware. Si sigue sin datos, hacen falta estados/configuración o registros del sistema de audio antes de atribuir el fallo al DSP o a los canales físicos.
+
+## Prueba posterior: frecuencia nativa
+
+El registro de sistema del 4 de noviembre muestra conversión Oboe de 48 a 96 kHz en salida, mientras la entrada solicita 48 kHz. El HAL MediaTek también anuncia diez canales físicos de captura, limita a ocho y presenta dos a la aplicación. Estas adaptaciones no demuestran por sí mismas la causa de la falta de callbacks. Los errores proxy_write aparecen al desconectar, después del periodo sin captura.
+
+Se deja la frecuencia de salida sin especificar y se solicita esa misma frecuencia en entrada y motor. Si queda fuera de 8–192 kHz, se vuelve a abrir a 48 kHz con conversión. No se cambian los canales ni se introduce un controlador USB propio. El log SoinuUSB incluye ahora Hz.
+
+Pruebas del cambio: transporte simulado USB a 96 kHz, teléfono a 48 kHz y tarjeta anunciando 384 kHz con retorno a 48 kHz; grabación/reproducción con motor C real y reinicio pasan. Sintaxis C++ verificada con Oboe oficial y controlador Kotlin compilado. La prueba con sanitizers citada arriba corresponde a la versión anterior del transporte por callback. Pendiente validar esta negociación en el teléfono; no confirma compatibilidad con Audio 10.
