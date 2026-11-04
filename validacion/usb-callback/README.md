@@ -42,11 +42,3 @@ El registro de sistema del 4 de noviembre muestra conversión Oboe de 48 a 96 kH
 Se deja la frecuencia de salida sin especificar y se solicita esa misma frecuencia en entrada y motor. Si queda fuera de 8–192 kHz, se vuelve a abrir a 48 kHz con conversión. No se cambian los canales ni se introduce un controlador USB propio. El log SoinuUSB incluye ahora Hz.
 
 Pruebas del cambio: transporte simulado USB a 96 kHz, teléfono a 48 kHz y tarjeta anunciando 384 kHz con retorno a 48 kHz; grabación/reproducción con motor C real y reinicio pasan. Sintaxis C++ verificada con Oboe oficial y controlador Kotlin compilado. La prueba con sanitizers citada arriba corresponde a la versión anterior del transporte por callback. Pendiente validar esta negociación en el teléfono; no confirma compatibilidad con Audio 10.
-
-## Prueba posterior: entrada USB PCM16
-
-Los registros de 15:09 muestran unos 384000 frames/segundo de captura frente a 96000 consumidos, con desbordamiento continuo. El HAL MediaTek informa 10 canales físicos, limita su representación a 8, publica 2 y convierte formato físico PCM16 a float. También aparece RecordThread: buffer overflow antes de desconectar. La captura deteriorada precede al detector, pero no se ha identificado qué conversión del HAL provoca el exceso.
-
-Prueba controlada: solicitar PCM16 para entrada USB, manteniendo float para salida y micrófono. El callback convierte los valores int16 a float en el anillo sin reservas ni esperas. Se conserva la ruta, el número de canales y la frecuencia negociada. No se aplica decimación por cuatro, no se cambian umbrales BPM y no se afirma haber reparado la adaptación multicanal del HAL. La Behringer también usará esta solicitud USB: necesita comprobarse en hardware como regresión.
-
-Pruebas: límites PCM16 -32768/32767 y ±16384, mono/estéreo; captura USB PCM16 a 48 y 96 kHz con grabación/reproducción real del motor C, micrófono float, retorno a 48 kHz para dispositivos fuera de rango. Compilación contra cabeceras Oboe oficiales y pruebas con ASan/UBSan. Transporte Oboe simulado; pendiente APK y hardware. El éxito en el teléfono requiere loop limpio y crecimiento comparable de frames recibidos/consumidos sin descartes continuos.
