@@ -33,16 +33,23 @@ public:
         // Solo después de cerrar ambos streams.
         writeIndex.store(0); readIndex.store(0); droppedFrames.store(0);
     }
-    uint32_t push(const float *data, uint32_t count, int channels) {
+    template<typename Sample>
+    uint32_t pushSamples(const Sample *data, uint32_t count, int channels, float scale) {
         if (!data || (channels != 1 && channels != 2)) return 0;
         const uint32_t write = writeIndex.load(std::memory_order_relaxed);
         const uint32_t read = readIndex.load(std::memory_order_acquire);
         const uint32_t accepted = std::min(count, capacity - (write - read));
         for (uint32_t i = 0; i < accepted; ++i)
-            frames[(write + i) & (capacity - 1)] = { data[i * channels], data[i * channels + channels - 1] };
+            frames[(write + i) & (capacity - 1)] = { data[i * channels] * scale, data[i * channels + channels - 1] * scale };
         writeIndex.store(write + accepted, std::memory_order_release);
         droppedFrames.fetch_add(count - accepted, std::memory_order_relaxed);
         return accepted;
+    }
+    uint32_t push(const float *data, uint32_t count, int channels) {
+        return pushSamples(data, count, channels, 1.0f);
+    }
+    uint32_t push(const int16_t *data, uint32_t count, int channels) {
+        return pushSamples(data, count, channels, 1.0f / 32768.0f);
     }
     uint32_t pop(float *left, float *right, uint32_t count) {
         const uint32_t read = readIndex.load(std::memory_order_relaxed);
@@ -113,7 +120,8 @@ public:
             in.setDirection(oboe::Direction::Input)
                 ->setSharingMode(oboe::SharingMode::Shared)
                 ->setPerformanceMode(inputDevice > 0 ? oboe::PerformanceMode::None : oboe::PerformanceMode::LowLatency)
-                ->setFormat(oboe::AudioFormat::Float)->setFormatConversionAllowed(true)
+                ->setFormat(inputDevice > 0 ? oboe::AudioFormat::I16 : oboe::AudioFormat::Float)
+                ->setFormatConversionAllowed(true)
                 ->setSampleRate(rate)
                 ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
                 ->setInputPreset(inputDevice > 0 ? oboe::InputPreset::Generic : oboe::InputPreset::Unprocessed)
@@ -128,7 +136,8 @@ public:
             }
             checked(result, "No se pudo abrir la entrada");
             inputChannels = input->getChannelCount();
-            if (inputChannels < 1 || inputChannels > 2 || input->getSampleRate() != rate)
+            if (inputChannels < 1 || inputChannels > 2 || input->getSampleRate() != rate ||
+                (input->getFormat() != oboe::AudioFormat::Float && input->getFormat() != oboe::AudioFormat::I16))
                 throw std::runtime_error("Formato de entrada incompatible");
             if (engine) {
                 if (!SBEngineReconfigureRate(engine, rate))
@@ -152,14 +161,21 @@ public:
         if (stream && stream->getDirection() == oboe::Direction::Input) {
             inputCallbacks.fetch_add(1, std::memory_order_relaxed);
             if (!data || frames <= 0) return oboe::DataCallbackResult::Continue;
-            const auto *in = static_cast<const float *>(data);
             receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
-            capture.push(in, static_cast<uint32_t>(frames), inputChannels);
             bool active = false;
             const int inspected = std::min(frames, MAX_FRAMES);
-            for (int i = 0; i < inspected && !active; ++i)
-                active = std::fabs(in[i * inputChannels]) > 1e-5f ||
-                    std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
+            if (stream->getFormat() == oboe::AudioFormat::I16) {
+                const auto *in = static_cast<const int16_t *>(data);
+                capture.push(in, static_cast<uint32_t>(frames), inputChannels);
+                for (int i = 0; i < inspected && !active; ++i)
+                    active = in[i * inputChannels] != 0 || in[i * inputChannels + inputChannels - 1] != 0;
+            } else {
+                const auto *in = static_cast<const float *>(data);
+                capture.push(in, static_cast<uint32_t>(frames), inputChannels);
+                for (int i = 0; i < inspected && !active; ++i)
+                    active = std::fabs(in[i * inputChannels]) > 1e-5f ||
+                        std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
+            }
             if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
             return oboe::DataCallbackResult::Continue;
         }

@@ -23,6 +23,14 @@ static void testRing() {
     ring->clear();
     assert(ring->queued()==0 && ring->dropped()==0);
 
+    int16_t pcm[] = {-32768, 32767, -16384, 16384};
+    assert(ring->push(pcm, 2, 2) == 2);
+    assert(ring->pop(left, right, 2) == 2);
+    assert(left[0] == -1.0f && right[0] == 32767.0f / 32768.0f);
+    assert(left[1] == -.5f && right[1] == .5f);
+    assert(ring->push(pcm, 2, 1) == 2);
+    ring->pop(left, right, 2);
+    assert(left[0] == right[0] && left[1] == right[1]);
     constexpr uint32_t total=200000;
     std::thread producer([&] {
         uint32_t position=0; std::array<float, 127*2> block{};
@@ -62,6 +70,9 @@ static void testSession(int inputDevice) {
     assert(session->snapshot()[0]==sampleRate);
     const int frames = inputDevice ? (sampleRate==96000?3076:1538) : 256;
     std::vector<float> out(frames * 2), data(frames * 2);
+    std::vector<int16_t> pcm(frames * 2);
+    assert(input->getFormat() == (inputDevice ? oboe::AudioFormat::I16 : oboe::AudioFormat::Float));
+    assert(output->getFormat() == oboe::AudioFormat::Float);
     int callbacks = 0;
     // La salida puede arrancar antes de la primera entrega de captura.
     assert(output->callback->onAudioReady(output.get(),out.data(),256)==oboe::DataCallbackResult::Continue);
@@ -73,10 +84,11 @@ static void testSession(int inputDevice) {
             float value=float(.2*std::sin(2*3.141592653589793*440*(position+i)/sampleRate));
             if(inputDevice) {data[i*2]=value;data[i*2+1]=value*.5f;} else data[i]=value;
         }
+        for (size_t i=0; i<data.size(); ++i) pcm[i]=static_cast<int16_t>(std::lround(data[i]*32768));
         // Captura por fragmentos de hasta 256; salida USB nativa de 3076 (96 kHz), evitando la conversión a 1538/48 kHz.
         for(int offset=0;offset<frames;) {
             const int chunk=std::min(256,frames-offset);
-            assert(input->callback->onAudioReady(input.get(),data.data()+offset*input->channels,chunk)==oboe::DataCallbackResult::Continue);
+            assert(input->callback->onAudioReady(input.get(),inputDevice ? static_cast<void *>(pcm.data()+offset*input->channels) : static_cast<void *>(data.data()+offset*input->channels),chunk)==oboe::DataCallbackResult::Continue);
             offset+=chunk; ++callbacks;
         }
         assert(output->callback->onAudioReady(output.get(),out.data(),frames)==oboe::DataCallbackResult::Continue);
@@ -102,6 +114,8 @@ static void testSession(int inputDevice) {
 }
 int main() {
     testRing(); testSession(266); testSession(0);
+    oboe::nativeUsbRate=48000;
+    testSession(266);
     oboe::nativeUsbRate=384000;
     testSession(266);
     std::cout<<"PASS native rate: USB 96 kHz and phone 48 kHz shared with input/engine; fallback to 48 kHz beyond engine range\n";
