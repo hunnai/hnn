@@ -72,10 +72,10 @@ def header(subtitle, page):
     text('Versión con SYNC · noviembre de 2026', 35, H-25, 7.7, MUTED)
     text(f'{page} / 2', W-58, H-25, 8, MUTED)
 
-def callout(label, title, body, top, x=267, width=292, size=10.2):
+def callout(label, title, body, top, x=267, width=292, size=10.2, leading=14):
     badge(label, x-16, top+8, 9)
     text(title, x, top, 11.1, bold=True)
-    height = paragraph(body, x, top+20, width, size, 14)
+    height = paragraph(body, x, top+20, width, size, leading)
     return top + 20 + height
 
 # Coordenadas de pantalla 720 × 1600, siguiendo las capturas del usuario.
@@ -136,7 +136,7 @@ def screen(x, top, width, settings=False):
         rect(24,1348,326,130,CTRL,colors.HexColor('#665B71'))
         rect(368,1348,326,130,CTRL,colors.HexColor('#665B71'))
         label('<<',187,1428,36,True);label('>>',531,1428,36,True)
-        for m,px,py in [(1,680,266),(2,282,376),(3,678,791),(4,218,791),(5,322,638),(6,666,638),(7,360,1410)]:mark(m,px,py)
+        for m,px,py in [(1,282,376),(2,678,791),(3,218,791),(4,322,638),(5,666,638),(6,360,1410)]:mark(m,px,py)
     else:
         label('Ajustes',40,158,49);label('Cerrar ×',548,155,27)
         label('Desfase actual: +43 ms',40,275,39)
@@ -189,7 +189,7 @@ def screen(x, top, width, settings=False):
         rect(325,1301,9,85,LIT,radius=4)
         rect(40,1430,640,70,CTRL,colors.HexColor('#665B71'),25)
         label('Manual de instrucciones',360,1476,28,True)
-        for m,px,py in [('A',663,246),('B',663,491),('C',680,690),('D',663,894),('E',663,1223)]:mark(m,px,py)
+        for m,px,py in [('A',663,246),('B',663,491),('C',680,690),('D',663,894),('E',663,1223),('F',663,1405)]:mark(m,px,py)
     c.restoreState()
     return height
 
@@ -203,63 +203,77 @@ def mini_button(label,x,top,width=52,height=42):
     rounded(x,top,width,height,CTRL,radius=6)
     c.setFillColor(colors.white);c.setFont('Guide',10);c.drawCentredString(x+width/2,H-top-height/2-3.5,label)
 
-header('Empieza a crear loops',1)
-rounded(35,101,W-70,80,PALE,radius=10)
-text('Antes de empezar',48,110,10.6,ACCENT,True)
-text('Con tarjeta: música → tarjeta USB → móvil (OTG)',48,130,11.2,bold=True)
-paragraph('Usa la primera entrada de la tarjeta (1–2). El audio arranca al abrir; permite el micrófono. También puedes usar el micro del móvil.',48,150,W-96,9.2,12)
-screen(35,190,207)
-paragraph('Esquema basado en tu pantalla. Los colores cambian con la apariencia elegida.',39,659,201,9,12,MUTED)
-callout(1,'Comprueba la entrada','Los LED deben moverse. Evita el rojo continuo: baja el nivel de la señal que entra.',191)
-callout(2,'Obtén el tempo','<b>AUTO:</b> deja sonar un ritmo estable hasta que aparezca el BPM.<br/><b>TAP:</b> pulsa al menos <b>8 veces</b>, siguiendo el pulso. Una pausa de más de 3 segundos reinicia la cuenta.',253)
-callout(3,'Graba un loop','Toca un banco vacío. La captura comienza en el siguiente pulso y, al terminar, el loop se repite automáticamente.<br/><b>1 beat = 1 pulso musical.</b>',365)
-callout(4,'Pausa y vuelve a sonar','Un toque corto en un banco que suena lo pausa. Otro toque lo reanuda.',460)
-callout(5,'Borra uno o todos','<b>Todos:</b> mantén <b>Borrar beats 2 segundos</b>.<br/><b>Uno:</b> primero páusalo; mantén ese banco y toca <b>Borrar beats</b> con otro dedo.',524)
-callout(6,'Reinicia el tempo','Mantén <b>Reset BPM 2 segundos</b>. Reinicia AUTO/TAP; los loops grabados continúan. También desactiva SYNC.',617)
-rounded(35,710,W-70,87,PALE,radius=10)
-badge(7,51,728,9)
-text('Flechas: corrige el desfase',69,719,11.2,bold=True)
-paragraph('<b>&lt;&lt; retrasa · &gt;&gt; adelanta.</b> Un toque ajusta 1 ms; mantener la flecha repite el ajuste. Sin sujetar un banco, afecta a <b>todos</b> los loops grabados, también los pausados, y desactiva SYNC. Para corregir solo uno, usa el gesto de la página 2.',48,741,W-96,9.7,13)
-c.showPage()
+header('Controles y gestos',1)
+paragraph('Música → entrada 1–2 de la tarjeta → móvil (OTG). El audio se inicia al abrir.',
+          35,104,W-70,10,13,MUTED)
+screen(35,136,184)
+paragraph('<b>LED:</b> nivel de entrada. Evita el rojo continuo.',39,551,180,8.9,10.5,MUTED)
+controls = [
+    (1, 'Tempo', '<b>AUTO:</b> detecta el ritmo de la música.<br/><b>TAP:</b> marca al menos <b>8 pulsaciones</b>. Una pausa de más de 3 s reinicia la cuenta.', 136),
+    (2, 'Grabar', 'Toca un botón vacío. Graba desde el siguiente pulso y se repite al terminar.<br/><b>1 beat = 1 pulso.</b>', 225),
+    (3, 'Pausar / reanudar', 'Toca un loop grabado para pausarlo o volver a reproducirlo.', 299),
+    (4, 'Borrar', '<b>Todos:</b> mantén <b>Borrar beats 2 s</b>.<br/><b>Uno:</b> pausa el loop, mantenlo y toca <b>Borrar beats</b> con otro dedo.', 357),
+    (5, 'Reset BPM', 'Mantén <b>Reset BPM 2 s</b>. Reinicia el tempo y SYNC; conserva los loops.', 430),
+    (6, 'Flechas', '<b>&lt;&lt; retrasa · &gt;&gt; adelanta.</b><br/>1 toque = 1 ms; mantenido, repite. Sin sujetar un loop, ajusta todos y desactiva SYNC.', 492),
+]
+for index,(number,title,body,top) in enumerate(controls):
+    end = callout(number,title,body,top,x=252,width=307,size=10,leading=13)
+    limit = controls[index+1][3]-7 if index+1<len(controls) else 569
+    assert end <= limit, (title,end,limit)
 
-header('Ajustes y gestos con los dedos',2)
-screen(35,123,160,True)
-paragraph('Valores de ejemplo. Abre Ajustes con la rueda dentada.',38,489,162,8.7,11.5,MUTED)
-callout('A','Desfase actual', 'Es el ajuste del banco mantenido o del último que has puesto a sonar. <b>Usar valor actual</b> guarda ese número.',123,x=236,width=323,size=10)
-callout('B','Desfase guardado', 'Se aplica a las próximas grabaciones. <b>Resetear valor</b> guarda 0 ms; no desplaza los loops ya grabados.',206,x=236,width=323,size=10)
-callout('C','Rango BPM Auto', 'Elige el mínimo y el máximo que buscará AUTO. Van de 10 en 10 y mantienen una separación de al menos <b>20 BPM</b>.',290,x=236,width=323,size=10)
-callout('D','Apariencia', 'Toca una muestra para cambiar las dos pantallas. Los LED mantienen sus colores verde, ámbar y rojo.',373,x=236,width=323,size=10)
-callout('E','Transparencia', '<b>0 %:</b> relleno opaco. <b>100 %:</b> relleno transparente. El texto y los bordes siguen visibles. Más abajo tienes <b>Manual de instrucciones</b>.',440,x=236,width=323,size=10)
-text('Tres gestos que conviene conocer',35,521,16,bold=True)
-text('En los gestos de dos dedos: mantén 1 y toca 2 sin soltar.',35,544,9.4,MUTED)
-cardtop=568;cardheight=195;cardwidth=(W-90)/3
-for i,title in enumerate(['Dividir y restaurar','Ajustar un banco','Activar / quitar SYNC']):
+text('Tres gestos para recordar',35,578,15,bold=True)
+text('Dos dedos: mantén 1 y toca 2 sin soltar.',35,599,9.2,MUTED)
+cardtop=620;cardheight=143;cardwidth=(W-90)/3
+for i,title in enumerate(['Dividir y restaurar','Ajustar un loop','Activar / quitar SYNC']):
     x=35+i*(cardwidth+10)
     rounded(x,cardtop,cardwidth,cardheight,PALE,BORDER,9)
-    text(title,x+11,cardtop+11,10.5,ACCENT,True)
+    text(title,x+10,cardtop+10,10,ACCENT,True)
     if i==0:
-        mini_button('4 beats',x+51,cardtop+48,65,52)
-        badge(1,x+83,cardtop+78,8)
-        arrow(x+34,cardtop+78,x+34,cardtop+38)
-        arrow(x+134,cardtop+78,x+134,cardtop+113)
-        text('÷2',x+16,cardtop+57,9,ACCENT,True)
-        text('×2',x+137,cardtop+87,9,ACCENT,True)
-        body='Con el banco sonando, arrastra el dedo <b>fuera por arriba</b>: mitad de duración. <b>Fuera por abajo:</b> doble, hasta la original. Un cambio por gesto.'
+        mini_button('4 beats',x+51,cardtop+31,65,38)
+        badge(1,x+83,cardtop+70,7)
+        arrow(x+32,cardtop+66,x+32,cardtop+31)
+        arrow(x+136,cardtop+36,x+136,cardtop+71)
+        text('÷2',x+12,cardtop+39,9,ACCENT,True)
+        text('×2',x+137,cardtop+55,9,ACCENT,True)
+        body='Con el loop sonando, desliza <b>fuera por arriba</b>: mitad. <b>Por abajo:</b> restaura hasta la duración original.'
     elif i==1:
-        mini_button('4 beats',x+12,cardtop+56,64,46)
-        mini_button('<<  >>',x+94,cardtop+56,58,46)
-        badge(1,x+44,cardtop+99,8);badge(2,x+123,cardtop+99,8)
-        arrow(x+80,cardtop+78,x+89,cardtop+78)
-        body='<b>Mantén el banco que suena.</b> Con otro dedo, toca una flecha. Solo se corrige ese banco. Si tenía SYNC, lo conserva con el nuevo desfase.'
+        mini_button('4 beats',x+12,cardtop+31,64,38)
+        mini_button('<<  >>',x+94,cardtop+31,58,38)
+        badge(1,x+44,cardtop+70,7);badge(2,x+123,cardtop+70,7)
+        arrow(x+80,cardtop+50,x+89,cardtop+50)
+        body='Mantén el loop que suena y toca una flecha con otro dedo. Solo ajusta ese loop y <b>conserva SYNC</b>.'
     else:
-        mini_button('4 beats',x+12,cardtop+56,64,46)
-        mini_button('AUTO',x+94,cardtop+56,58,46)
-        badge(1,x+44,cardtop+99,8);badge(2,x+123,cardtop+99,8)
-        arrow(x+80,cardtop+78,x+89,cardtop+78)
-        body='<b>Cuadra antes el loop.</b> Mantén su banco y toca AUTO. Repite para desactivar.<br/><b>SYNC…</b> espera; <b>SYNC</b> sigue el pulso. Dividir y usar flechas conserva SYNC.'
-    height=paragraph(body,x+11,cardtop+116,cardwidth-22,9,12)
-    assert height <= cardheight-121, (title,height)
-paragraph('<b>SYNC corrige pequeñas derivas sin cambiar el BPM.</b> Espera si la referencia no es fiable o el tempo cambia demasiado. Pausa, Reset BPM y TAP lo desactivan. <b>Para SYNC, usa preferiblemente auriculares y una entrada directa de la música original: evita que vuelva a entrar el loop que reproduce la app.</b>',35,770,W-70,8.5,11.5,MUTED)
+        mini_button('4 beats',x+12,cardtop+31,64,38)
+        mini_button('AUTO',x+94,cardtop+31,58,38)
+        badge(1,x+44,cardtop+70,7);badge(2,x+123,cardtop+70,7)
+        arrow(x+80,cardtop+50,x+89,cardtop+50)
+        body='Con el loop <b>cuadrado y sonando</b>, mantén su botón y toca AUTO. Repite para quitar.<br/><b>SYNC…</b> espera; <b>SYNC</b> sigue el pulso.'
+    height=paragraph(body,x+10,cardtop+81,cardwidth-20,8.9,10.5)
+    assert height <= cardheight-87, (title,height)
+
+note_height=paragraph('<b>SYNC</b> corrige pequeñas derivas sin cambiar el BPM. Dividir lo conserva; pausa, TAP o Reset BPM lo desactivan.<br/>'
+          'Usa preferiblemente una <b>entrada directa de la música original</b> para evitar que vuelva a entrar el loop que está reproduciendo la app.',
+          35,774,W-70,8.7,11,MUTED)
+assert 774+note_height <= H-34, note_height
+c.showPage()
+
+header('Ajustes',2)
+paragraph('Abre esta pantalla con la rueda dentada.',35,104,W-70,10,13,MUTED)
+screen(35,136,234,True)
+paragraph('Los valores de la imagen son ejemplos.',39,670,226,9,12,MUTED)
+settings = [
+    ('A','Desfase actual', 'Ajuste del loop mantenido o del último que has puesto a sonar. <b>Usar valor actual</b> lo guarda.',154),
+    ('B','Desfase guardado', 'Se aplica a las próximas grabaciones. <b>Resetear valor</b> guarda 0 ms. No mueve los loops ya grabados.',252),
+    ('C','Rango BPM Auto', 'Limita la búsqueda de AUTO. Mínimo y máximo separados al menos <b>20 BPM</b>.',350),
+    ('D','Apariencia', 'Elige colores o texturas. Se aplica al momento; los LED mantienen sus colores.',440),
+    ('E','Transparencia', '<b>0 %:</b> opaco. <b>100 %:</b> transparente. Texto y bordes siguen visibles.',530),
+    ('F','Manual de instrucciones', 'Abre esta guía sin internet. Desliza para leer y pellizca para ampliar. Vuelve con <b>Volver</b> o <b>Atrás</b>.',625),
+]
+for index,(letter,title,body,top) in enumerate(settings):
+    end=callout(letter,title,body,top,x=320,width=239,size=10.2,leading=14)
+    limit=settings[index+1][3]-10 if index+1<len(settings) else 780
+    assert end <= limit,(title,end,limit)
+
 c.save()
 print(OUTPUT)
 print('Páginas: 2 · bloques de texto:',len(boxes))
