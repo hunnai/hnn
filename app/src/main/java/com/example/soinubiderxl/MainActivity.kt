@@ -118,7 +118,9 @@ private fun SoinuScreen(controller: SoinuController) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
             controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
             controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency,
-            controller::captureInputDiagnostic)
+            controller::captureInputDiagnostic, controller.usbInputAvailable,
+            controller.inputRecovery, controller.inputPair,
+            controller::changeInputRecovery, controller::selectInputPair)
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
@@ -411,7 +413,12 @@ private fun SettingsScreen(
     appearanceChanged: (Appearance) -> Unit,
     transparencyChanged: (Float) -> Unit,
     transparencySaved: () -> Unit,
-    captureDiagnostic: suspend () -> ByteArray
+    captureDiagnostic: suspend () -> ByteArray,
+    usbInputAvailable: Boolean,
+    inputRecovery: Boolean,
+    inputPair: Int,
+    recoveryChanged: (Boolean) -> Unit,
+    inputPairChanged: (Int) -> Unit
 ) {
     val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
@@ -455,7 +462,40 @@ private fun SettingsScreen(
                     activeTrackColor = palette.lit, inactiveTrackColor = palette.paused)
             )
         }
+        if (usbInputAvailable) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Entrada USB", fontSize = 18.sp)
+                AudioInputChoice(
+                    if (inputRecovery) 1 else 0,
+                    listOf("Estéreo normal", "Recuperación de 8 canales"),
+                    "Modo de entrada"
+                ) { recoveryChanged(it == 1) }
+                if (inputRecovery) AudioInputChoice(inputPair,
+                    listOf("Canales 1–2", "Canales 3–4", "Canales 5–6", "Canales 7–8"),
+                    "Par de entrada", inputPairChanged)
+                Text("Los cambios reinician el audio. La selección se guarda para esta tarjeta.", fontSize = 14.sp)
+            }
+        }
         InputDiagnosticControls(state.audioRunning, captureDiagnostic)
+    }
+}
+
+@Composable
+private fun AudioInputChoice(selected: Int, options: List<String>, description: String, changed: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()
+            .semantics { contentDescription = description }) {
+            Text(options[selected] + " ▾")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEachIndexed { index, label ->
+                DropdownMenuItem(text = { Text(label) }, onClick = {
+                    expanded = false
+                    changed(index)
+                })
+            }
+        }
     }
 }
 

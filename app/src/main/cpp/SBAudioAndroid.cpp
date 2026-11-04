@@ -66,6 +66,28 @@ public:
     uint32_t dropped() const { return droppedFrames.load(std::memory_order_relaxed); }
 };
 
+// Recuperación explícita para una ruta que entrega grupos de ocho valores
+// como si fueran cuatro frames estéreo. No se aplica a una entrada normal.
+class InputPairDecoder final {
+    std::array<float, 8> group{};
+    int filled = 0, first = 0;
+public:
+    void reset(int firstChannel) { filled = 0; first = firstChannel; }
+    // El destino admite 2 * ceil((count + 7) / 8) floats.
+    uint32_t decode(const float *source, uint32_t count, float *destination) {
+        uint32_t frames = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            group[filled++] = source[i];
+            if (filled == 8) {
+                destination[frames * 2] = group[first];
+                destination[frames * 2 + 1] = group[first + 1];
+                ++frames; filled = 0;
+            }
+        }
+        return frames;
+    }
+};
+
 // Solo se activa por petición del usuario. PCM previo al anillo y sus descartes.
 // El control reserva el buffer; el callback escribe y publica Ready con release.
 class InputDiagnostic final {
@@ -124,6 +146,10 @@ class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioSt
     SBEngine *engine = nullptr;
     CaptureRing capture;
     InputDiagnostic diagnostic;
+    InputPairDecoder pairDecoder;
+    std::array<float, MAX_FRAMES * 2> selectedInput{};
+    int recoveryChannels = 0, selectedPair = 0;
+    std::atomic<uint32_t> deliveredFrames{0};
     std::array<float, MAX_FRAMES> inLeft{}, inRight{}, outLeft{}, outRight{};
     std::atomic<int32_t> error{0};
     int inputChannels = 1;
@@ -137,6 +163,12 @@ public:
         if (input) { input->requestStop(); input->close(); input.reset(); }
         diagnostic.clear();
     }
+    void setInputLayout(int channels, int pair) {
+        if (input || output) throw std::runtime_error("Detén el audio antes de cambiar la entrada");
+        if ((channels != 0 && channels != 8) || pair < 0 || pair > 3)
+            throw std::runtime_error("Selección de entrada inválida");
+        recoveryChannels = channels; selectedPair = pair;
+    }
     void start(int inputDevice, int outputDevice, double advance) {
         stop(); error.store(0);
         requestedInputDevice = inputDevice;
@@ -144,6 +176,8 @@ public:
         requestedFrames.store(0); receivedFrames.store(0);
         emptyReads.store(0); activeReads.store(0); inputCallbacks.store(0);
         capture.clear();
+        deliveredFrames.store(0);
+        pairDecoder.reset(selectedPair * 2);
         try {
             oboe::AudioStreamBuilder out;
             out.setDirection(oboe::Direction::Output)
@@ -184,6 +218,8 @@ public:
             }
             checked(result, "No se pudo abrir la entrada");
             inputChannels = input->getChannelCount();
+            if (recoveryChannels == 8 && (inputDevice <= 0 || inputChannels != 2))
+                throw std::runtime_error("La recuperación de ocho canales requiere una entrada USB estéreo declarada");
             if (inputChannels < 1 || inputChannels > 2 || input->getSampleRate() != rate)
                 throw std::runtime_error("Formato de entrada incompatible");
             if (engine) {
@@ -211,12 +247,27 @@ public:
             const auto *in = static_cast<const float *>(data);
             receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
             diagnostic.append(in, frames);
-            capture.push(in, static_cast<uint32_t>(frames), inputChannels);
             bool active = false;
-            const int inspected = std::min(frames, MAX_FRAMES);
-            for (int i = 0; i < inspected && !active; ++i)
-                active = std::fabs(in[i * inputChannels]) > 1e-5f ||
-                    std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
+            if (recoveryChannels == 8) {
+                // Fragmentos acotados: el callback puede ser mayor que el scratch.
+                for (int offset = 0; offset < frames;) {
+                    const int chunk = std::min(frames - offset, MAX_FRAMES);
+                    const uint32_t mapped = pairDecoder.decode(in + offset * 2,
+                        static_cast<uint32_t>(chunk * 2), selectedInput.data());
+                    capture.push(selectedInput.data(), mapped, 2);
+                    deliveredFrames.fetch_add(mapped, std::memory_order_relaxed);
+                    for (uint32_t i = 0; i < mapped * 2 && !active; ++i)
+                        active = std::fabs(selectedInput[i]) > 1e-5f;
+                    offset += chunk;
+                }
+            } else {
+                capture.push(in, static_cast<uint32_t>(frames), inputChannels);
+                deliveredFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
+                const int inspected = std::min(frames, MAX_FRAMES);
+                for (int i = 0; i < inspected && !active; ++i)
+                    active = std::fabs(in[i * inputChannels]) > 1e-5f ||
+                        std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
+            }
             if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
             return oboe::DataCallbackResult::Continue;
         }
@@ -235,9 +286,9 @@ public:
         }
         return oboe::DataCallbackResult::Continue;
     }
-    std::array<double, 55> snapshot() {
+    std::array<double, 58> snapshot() {
         // Los primeros 37 campos conservan su significado y orden.
-        std::array<double, 55> values{};
+        std::array<double, 58> values{};
         values[3] = error.load();
         values[37] = requestedInputDevice;
         values[38] = input ? input->getDeviceId() : 0;
@@ -257,6 +308,9 @@ public:
         values[52] = inputCallbacks.load(std::memory_order_relaxed);
         values[53] = input ? static_cast<int>(input->getState()) : 0;
         values[54] = output ? static_cast<int>(output->getState()) : 0;
+        values[55] = deliveredFrames.load(std::memory_order_relaxed);
+        values[56] = recoveryChannels;
+        values[57] = selectedPair;
         if (!engine) return values;
         SBSnapshot header{}; SBBankSnapshot banks[6]{};
         SBEngineReadSnapshot(engine, &header, banks);
@@ -321,6 +375,12 @@ Session *get(JNIEnv *env, jlong handle) {
 extern "C" JNIEXPORT jlong JNICALL Java_com_example_soinubiderxl_NativeAudio_create(JNIEnv *env, jobject) {
     try { return static_cast<jlong>(reinterpret_cast<intptr_t>(new Session())); }
     catch (const std::exception &e) { report(env, e.what()); return 0; }
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_soinubiderxl_NativeAudio_setInputLayout(
+    JNIEnv *env, jobject, jlong handle, jint channels, jint pair) {
+    auto *s = get(env, handle); if (!s) return;
+    try { s->setInputLayout(channels, pair); }
+    catch (const std::exception &e) { report(env, e.what()); }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_example_soinubiderxl_NativeAudio_start(
     JNIEnv *env, jobject, jlong handle, jint input, jint output, jdouble advance) {

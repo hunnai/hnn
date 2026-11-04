@@ -5,6 +5,7 @@ package com.example.soinubiderxl
 object NativeAudio {
     init { System.loadLibrary("soinubider") }
     external fun create(): Long
+    external fun setInputLayout(handle: Long, channels: Int, pair: Int)
     external fun start(handle: Long, inputDevice: Int, outputDevice: Int, advance: Double)
     external fun beginDiagnostic(handle: Long): Boolean
     external fun readDiagnostic(handle: Long): FloatArray?

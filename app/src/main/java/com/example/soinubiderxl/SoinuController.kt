@@ -44,6 +44,26 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         appearance = readAppearance(), buttonTransparency = readButtonTransparency()))
         private set
 
+    private var inputPreferenceKey: String? = null
+    var inputRecovery by mutableStateOf(false); private set
+    var inputPair by mutableStateOf(0); private set
+    var usbInputAvailable by mutableStateOf(false); private set
+
+    fun changeInputRecovery(enabled: Boolean) {
+        val key = inputPreferenceKey ?: return
+        if (inputRecovery == enabled) return
+        preferences.edit().putBoolean("$key/recovery8", enabled).apply()
+        suspendAudio()
+        start()
+    }
+    fun selectInputPair(pair: Int) {
+        val key = inputPreferenceKey ?: return
+        if (pair !in 0..3 || inputPair == pair) return
+        preferences.edit().putInt("$key/pair", pair).apply()
+        suspendAudio()
+        start()
+    }
+
     private fun readSaved(): Double = preferences.getString("advanceMS", "0")
         ?.toDoubleOrNull()?.takeIf { it.isFinite() && abs(it) <= 2000 } ?: 0.0
 
@@ -173,8 +193,15 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         suspendAudio()
         try {
             val (input, output) = usbRoute()
+            inputPreferenceKey = input?.let {
+                "input/${it.productName}/${if (Build.VERSION.SDK_INT >= 28) it.address else ""}"
+            }
+            usbInputAvailable = input != null
+            inputRecovery = inputPreferenceKey?.let { preferences.getBoolean("$it/recovery8", false) } ?: false
+            inputPair = inputPreferenceKey?.let { preferences.getInt("$it/pair", 0).coerceIn(0, 3) } ?: 0
             if (handle == 0L) handle = NativeAudio.create()
             check(handle != 0L) { "No se pudo crear el motor C" }
+            NativeAudio.setInputLayout(handle, if (inputRecovery) 8 else 0, inputPair)
             NativeAudio.start(handle, input?.id ?: 0, output?.id ?: 0, state.savedAdvanceMS)
             tap.reset(); lastTap = null; pending.clear(); generation++
             state = state.copy(audioRunning = true, tempo = null, tapCount = 0,
@@ -325,6 +352,9 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                         "bloquesConSenal=${snapshot[49].toLong()} pico=${snapshot[2]}" +
                                         if (snapshot.size >= 55) " descartadasCaptura=${snapshot[50].toLong()} colaCaptura=${snapshot[51].toLong()} " +
                                             "callbacksEntrada=${snapshot[52].toLong()} estadoEntrada=${snapshot[53].toInt()} estadoSalida=${snapshot[54].toInt()}" else "")
+                                    if (snapshot.size >= 58) android.util.Log.d("SoinuUSB",
+                                        "ENTRADA framesUtiles=${snapshot[55].toLong()} recuperacion=${snapshot[56].toInt()} " +
+                                        "par=${snapshot[57].toInt() + 1}")
                                 }
                                 val automatic = latest?.takeIf { it.generation == generation }
                                 if (state.mode == TempoMode.AUTOMATIC) android.util.Log.d("SoinuBPM",

@@ -1,5 +1,6 @@
 #include <cassert>
 #include <iostream>
+#include <fstream>
 #include <thread>
 #include <vector>
 #include "../../app/src/main/cpp/SBAudioAndroid.cpp"
@@ -141,8 +142,111 @@ static void testInputDiagnostic() {
     assert(!session->inputDiagnostic().ready() && !session->beginDiagnostic());
     std::cout<<"PASS input diagnostic: raw samples before FIFO drops, concurrent publish, bounded capture, restart and stop\n";
 }
-int main() {
+static void testPairDecoder() {
+    std::vector<float> source(1003*8);
+    for (int frame=0;frame<1003;++frame)
+        for(int lane=0;lane<8;++lane) source[frame*8+lane]=float(frame*10+lane);
+    for(int pair=0;pair<4;++pair) {
+        InputPairDecoder decoder;decoder.reset(pair*2);
+        std::vector<float> output(source.size());uint32_t produced=0;
+        // Límites de callback que cortan grupos, incluso a mitad de un par.
+        for(size_t offset=0;offset<source.size();) {
+            const auto count=std::min<size_t>(37,source.size()-offset);
+            produced+=decoder.decode(source.data()+offset,count,output.data()+produced*2);
+            offset+=count;
+        }
+        assert(produced==1003);
+        for(int frame=0;frame<1003;++frame) {
+            assert(output[frame*2]==source[frame*8+pair*2]);
+            assert(output[frame*2+1]==source[frame*8+pair*2+1]);
+        }
+        decoder.reset(pair*2);
+        assert(decoder.decode(source.data(),7,output.data())==0);
+        decoder.reset(pair*2);
+        assert(decoder.decode(source.data()+8,8,output.data())==1);
+        assert(output[0]==source[8+pair*2]);
+    }
+    std::cout<<"PASS eight-channel decoder: all pairs, fragmented callbacks and cleared partial group\n";
+}
+static void testRecoverySession(int pair) {
+    oboe::opened.clear(); oboe::nativeUsbRate=96000;
+    auto session=std::make_unique<Session>();
+    session->setInputLayout(8,pair);
+    session->start(266,261,0);
+    auto output=oboe::opened[0], input=oboe::opened[1];
+    bool rejected=false;
+    try { session->setInputLayout(0,0); } catch(const std::runtime_error &) { rejected=true; }
+    assert(rejected);
+    assert(session->arm(0,120,0,-1));
+    constexpr int frames=1024;
+    std::array<float,frames*8> source{};
+    std::array<float,frames*2> out{};
+    int position=0; bool audible=false;
+    for(int block=0;block<150;++block) {
+        for(int frame=0;frame<frames;++frame)
+            for(int lane=0;lane<8;++lane)
+                source[frame*8+lane]=(lane/2==pair ? .2f : .9f)*
+                    std::sin(float((position+frame)*2*3.141592653589793*(440+lane/2*100)/96000));
+        for(int offset=0;offset<frames*4;) {
+            const int count=std::min(257,frames*4-offset);
+            input->callback->onAudioReady(input.get(),source.data()+offset*2,count);
+            offset+=count;
+        }
+        output->callback->onAudioReady(output.get(),out.data(),frames);
+        const auto snapshot=session->snapshot();
+        assert(snapshot[46]==(block+1)*frames*4); // Frames que declara Android.
+        assert(snapshot[55]==(block+1)*frames);   // Frames completos reconstruidos.
+        assert(snapshot[50]==0 && snapshot[51]==0);
+        assert(snapshot[56]==8 && snapshot[57]==pair);
+        assert(snapshot[2]>.19 && snapshot[2]<.201); // No se filtra ningún otro par.
+        for(float value:out) {assert(std::isfinite(value));audible|=std::fabs(value)>.1f;}
+        std::array<float,1024> analysis{};uint64_t start=0;
+        while(session->read(analysis.data(),analysis.size(),&start)>0) {}
+        position+=frames;
+    }
+    assert(audible && session->snapshot()[7]==3);
+    session->stop();session->setInputLayout(0,0);session->start(266,261,0);
+    assert(session->snapshot()[56]==0 && session->snapshot()[55]==0);
+    std::cout<<"PASS recovery Session pair "<<pair+1<<": reconstructed rate, no FIFO drops, selected audio and real C loop playback\n";
+}
+// Fixture privada opcional: no se publica audio subido por el usuario.
+static void decodeUploadedFixture(const char *path) {
+    std::ifstream file(path,std::ios::binary);
+    std::vector<char> wav((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    assert(wav.size()>12);
+    size_t offset=12;bool found=false;
+    while(offset+8<=wav.size()) {
+        uint32_t bytes=0;std::memcpy(&bytes,wav.data()+offset+4,4);
+        assert(offset+8+bytes<=wav.size());
+        if(std::memcmp(wav.data()+offset,"data",4)==0) {
+            assert(bytes%32==0);
+            std::vector<float> source(bytes/4),out(bytes/4);
+            std::memcpy(source.data(),wav.data()+offset+8,bytes);
+            for(int pair=0;pair<4;++pair) {
+                InputPairDecoder decoder;decoder.reset(pair*2);uint32_t produced=0;
+                for(size_t position=0;position<source.size();) {
+                    const auto count=std::min<size_t>(864,source.size()-position);
+                    produced+=decoder.decode(source.data()+position,count,out.data()+produced*2);
+                    position+=count;
+                }
+                assert(produced==source.size()/8);
+                for(uint32_t frame=0;frame<produced;++frame) {
+                    assert(out[frame*2]==source[frame*8+pair*2]);
+                    assert(out[frame*2+1]==source[frame*8+pair*2+1]);
+                }
+            }
+            found=true;break;
+        }
+        offset+=8+bytes+(bytes%2);
+    }
+    assert(found);
+    std::cout<<"PASS uploaded raw fixture: four recovered pairs preserve exact samples and 4:1 frame mapping\n";
+}
+int main(int argc, char **argv) {
     testRing(); testSession(266); testSession(0); testInputDiagnostic();
+    testPairDecoder();
+    for(int pair=0;pair<4;++pair) testRecoverySession(pair);
+    if(argc>1) decodeUploadedFixture(argv[1]);
     oboe::nativeUsbRate=384000;
     testSession(266);
     std::cout<<"PASS native rate: USB 96 kHz and phone 48 kHz shared with input/engine; fallback to 48 kHz beyond engine range\n";
