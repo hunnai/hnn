@@ -19,16 +19,62 @@ void checked(oboe::Result result, const char *message) {
     if (result != oboe::Result::OK)
         throw std::runtime_error(std::string(message) + ": " + oboe::convertToText(result));
 }
+// Entrada y salida pueden usar callbacks de tamaños distintos.
+// Un productor (captura) y un consumidor (salida); nunca hay esperas ni reservas.
+class CaptureRing final {
+public:
+    static constexpr uint32_t capacity = 32768;
+private:
+    struct Frame { float left = 0, right = 0; };
+    std::array<Frame, capacity> frames{};
+    std::atomic<uint32_t> writeIndex{0}, readIndex{0}, droppedFrames{0};
+public:
+    void clear() {
+        // Solo después de cerrar ambos streams.
+        writeIndex.store(0); readIndex.store(0); droppedFrames.store(0);
+    }
+    uint32_t push(const float *data, uint32_t count, int channels) {
+        if (!data || (channels != 1 && channels != 2)) return 0;
+        const uint32_t write = writeIndex.load(std::memory_order_relaxed);
+        const uint32_t read = readIndex.load(std::memory_order_acquire);
+        const uint32_t accepted = std::min(count, capacity - (write - read));
+        for (uint32_t i = 0; i < accepted; ++i)
+            frames[(write + i) & (capacity - 1)] = { data[i * channels], data[i * channels + channels - 1] };
+        writeIndex.store(write + accepted, std::memory_order_release);
+        droppedFrames.fetch_add(count - accepted, std::memory_order_relaxed);
+        return accepted;
+    }
+    uint32_t pop(float *left, float *right, uint32_t count) {
+        const uint32_t read = readIndex.load(std::memory_order_relaxed);
+        const uint32_t write = writeIndex.load(std::memory_order_acquire);
+        const uint32_t received = std::min(count, write - read);
+        for (uint32_t i = 0; i < received; ++i) {
+            const auto &frame = frames[(read + i) & (capacity - 1)];
+            left[i] = frame.left; right[i] = frame.right;
+        }
+        readIndex.store(read + received, std::memory_order_release);
+        std::fill_n(left + received, count - received, 0.0f);
+        std::fill_n(right + received, count - received, 0.0f);
+        return received;
+    }
+    uint32_t queued() const {
+        const uint32_t read = readIndex.load(std::memory_order_acquire);
+        const uint32_t write = writeIndex.load(std::memory_order_acquire);
+        return std::min(capacity, write - read);
+    }
+    uint32_t dropped() const { return droppedFrames.load(std::memory_order_relaxed); }
+};
+
 class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioStreamErrorCallback {
     std::shared_ptr<oboe::AudioStream> input, output;
     SBEngine *engine = nullptr;
-    std::array<float, MAX_FRAMES * 2> interleaved{};
+    CaptureRing capture;
     std::array<float, MAX_FRAMES> inLeft{}, inRight{}, outLeft{}, outRight{};
     std::atomic<int32_t> error{0};
     int inputChannels = 1;
     int requestedInputDevice = 0, requestedOutputDevice = 0;
     // Contadores de diagnóstico: atómicos de 32 bits, sin logs en el callback.
-    std::atomic<uint32_t> requestedFrames{0}, receivedFrames{0}, emptyReads{0}, activeReads{0};
+    std::atomic<uint32_t> requestedFrames{0}, receivedFrames{0}, emptyReads{0}, activeReads{0}, inputCallbacks{0};
 public:
     ~Session() { stop(); SBEngineDestroy(engine); }
     void stop() {
@@ -40,7 +86,8 @@ public:
         requestedInputDevice = inputDevice;
         requestedOutputDevice = outputDevice;
         requestedFrames.store(0); receivedFrames.store(0);
-        emptyReads.store(0); activeReads.store(0);
+        emptyReads.store(0); activeReads.store(0); inputCallbacks.store(0);
+        capture.clear();
         try {
             oboe::AudioStreamBuilder out;
             out.setDirection(oboe::Direction::Output)
@@ -62,7 +109,7 @@ public:
                 ->setSampleRate(rate)
                 ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
                 ->setInputPreset(inputDevice > 0 ? oboe::InputPreset::Generic : oboe::InputPreset::Unprocessed)
-                ->setErrorCallback(this);
+                ->setDataCallback(this)->setErrorCallback(this);
             if (inputDevice > 0) in.setDeviceId(inputDevice);
             in.setChannelCount(inputDevice > 0 ? 2 : 1);
             auto result = in.openStream(input);
@@ -93,7 +140,21 @@ public:
     void onErrorAfterClose(oboe::AudioStream *, oboe::Result result) override {
         error.store(static_cast<int32_t>(result));
     }
-    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *, void *data, int32_t frames) override {
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream, void *data, int32_t frames) override {
+        if (stream && stream->getDirection() == oboe::Direction::Input) {
+            inputCallbacks.fetch_add(1, std::memory_order_relaxed);
+            if (!data || frames <= 0) return oboe::DataCallbackResult::Continue;
+            const auto *in = static_cast<const float *>(data);
+            receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
+            capture.push(in, static_cast<uint32_t>(frames), inputChannels);
+            bool active = false;
+            const int inspected = std::min(frames, MAX_FRAMES);
+            for (int i = 0; i < inspected && !active; ++i)
+                active = std::fabs(in[i * inputChannels]) > 1e-5f ||
+                    std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
+            if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
+            return oboe::DataCallbackResult::Continue;
+        }
         auto *out = static_cast<float *>(data);
         if (!out || frames <= 0) return oboe::DataCallbackResult::Continue;
         if (!engine || !input || frames > MAX_FRAMES) {
@@ -101,37 +162,17 @@ public:
             return oboe::DataCallbackResult::Stop;
         }
         requestedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
-        auto result = input->read(interleaved.data(), frames, 0);
-        if (!result) {
-            std::fill_n(out, frames * 2, 0.0f);
-            error.store(static_cast<int32_t>(result.error()));
-            return oboe::DataCallbackResult::Stop;
-        }
-        const int received = result.value();
-        if (received < 0 || received > frames) {
-            std::fill_n(out, frames * 2, 0.0f); error.store(-2);
-            return oboe::DataCallbackResult::Stop;
-        }
-        receivedFrames.fetch_add(static_cast<uint32_t>(received), std::memory_order_relaxed);
+        const uint32_t received = capture.pop(inLeft.data(), inRight.data(), static_cast<uint32_t>(frames));
         if (received == 0) emptyReads.fetch_add(1, std::memory_order_relaxed);
-        bool active = false;
-        for (int i = 0; i < frames; ++i) {
-            inLeft[i] = i < received ? interleaved[i * inputChannels] : 0.0f;
-            inRight[i] = i < received
-                ? interleaved[i * inputChannels + (inputChannels > 1 ? 1 : 0)] : 0.0f;
-        }
-        for (int i = 0; i < received && !active; ++i)
-            active = std::fabs(inLeft[i]) > 1e-5f || std::fabs(inRight[i]) > 1e-5f;
-        if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
         SBEngineProcess(engine, inLeft.data(), inRight.data(), outLeft.data(), outRight.data(), frames);
         for (int i = 0; i < frames; ++i) {
             out[i * 2] = outLeft[i]; out[i * 2 + 1] = outRight[i];
         }
         return oboe::DataCallbackResult::Continue;
     }
-    std::array<double, 50> snapshot() {
+    std::array<double, 55> snapshot() {
         // Los primeros 37 campos conservan su significado y orden.
-        std::array<double, 50> values{};
+        std::array<double, 55> values{};
         values[3] = error.load();
         values[37] = requestedInputDevice;
         values[38] = input ? input->getDeviceId() : 0;
@@ -146,6 +187,11 @@ public:
         values[47] = emptyReads.load(std::memory_order_relaxed);
         values[48] = input ? static_cast<int>(input->getInputPreset()) : 0;
         values[49] = activeReads.load(std::memory_order_relaxed);
+        values[50] = capture.dropped();
+        values[51] = capture.queued();
+        values[52] = inputCallbacks.load(std::memory_order_relaxed);
+        values[53] = input ? static_cast<int>(input->getState()) : 0;
+        values[54] = output ? static_cast<int>(output->getState()) : 0;
         if (!engine) return values;
         SBSnapshot header{}; SBBankSnapshot banks[6]{};
         SBEngineReadSnapshot(engine, &header, banks);

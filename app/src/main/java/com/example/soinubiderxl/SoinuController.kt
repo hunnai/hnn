@@ -299,7 +299,9 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                         "apiEntrada=${snapshot[43].toInt()} apiSalida=${snapshot[44].toInt()} " +
                                         "solicitadas=${snapshot[45].toLong()} recibidas=${snapshot[46].toLong()} " +
                                         "lecturasVacias=${snapshot[47].toLong()} perfil=${snapshot[48].toInt()} " +
-                                        "bloquesConSenal=${snapshot[49].toLong()} pico=${snapshot[2]}")
+                                        "bloquesConSenal=${snapshot[49].toLong()} pico=${snapshot[2]}" +
+                                        if (snapshot.size >= 55) " descartadasCaptura=${snapshot[50].toLong()} colaCaptura=${snapshot[51].toLong()} " +
+                                            "callbacksEntrada=${snapshot[52].toLong()} estadoEntrada=${snapshot[53].toInt()} estadoSalida=${snapshot[54].toInt()}" else "")
                                 }
                                 val automatic = latest?.takeIf { it.generation == generation }
                                 if (state.mode == TempoMode.AUTOMATIC) android.util.Log.d("SoinuBPM",
