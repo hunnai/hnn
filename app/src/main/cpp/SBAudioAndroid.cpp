@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <time.h>
+#include <vector>
 #include "SBRealtime.h"
 
 namespace {
@@ -65,10 +66,64 @@ public:
     uint32_t dropped() const { return droppedFrames.load(std::memory_order_relaxed); }
 };
 
+// Solo se activa por petición del usuario. PCM previo al anillo y sus descartes.
+// El control reserva el buffer; el callback escribe y publica Ready con release.
+class InputDiagnostic final {
+    enum : uint32_t { Idle, Requested, Writing, Ready };
+    std::atomic<uint32_t> phase{Idle};
+    std::vector<float> samples;
+    size_t written = 0;
+    int rate = 0, channels = 0;
+    double firstTime = 0, elapsed = 0;
+    static double now() {
+        timespec t{};
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        return t.tv_sec + t.tv_nsec / 1e9;
+    }
+public:
+    // Control; nunca se modifica un buffer que está escribiendo el callback.
+    bool begin(int sampleRate, int channelCount) {
+        const auto state = phase.load(std::memory_order_acquire);
+        if (state == Requested || state == Writing || sampleRate < 8000 ||
+            sampleRate > 192000 || channelCount < 1 || channelCount > 2) return false;
+        samples.resize(static_cast<size_t>(sampleRate) * channelCount * 4);
+        rate = sampleRate; channels = channelCount; written = 0; elapsed = 0;
+        phase.store(Requested, std::memory_order_release);
+        return true;
+    }
+    void append(const float *input, int frames) {
+        auto state = phase.load(std::memory_order_acquire);
+        if (!input || frames <= 0 || (state != Requested && state != Writing)) return;
+        if (state == Requested) {
+            firstTime = now();
+            phase.store(Writing, std::memory_order_relaxed);
+        }
+        const size_t count = std::min(samples.size() - written, static_cast<size_t>(frames) * channels);
+        std::copy_n(input, count, samples.data() + written);
+        written += count;
+        if (written == samples.size()) {
+            elapsed = now() - firstTime;
+            phase.store(Ready, std::memory_order_release);
+        }
+    }
+    bool ready() const { return phase.load(std::memory_order_acquire) == Ready; }
+    // Lectura solo en Ready: el productor ya no toca el buffer hasta otro begin.
+    const std::vector<float> &data() const { return samples; }
+    std::array<float, 4> header() const {
+        return {static_cast<float>(rate), static_cast<float>(channels),
+                static_cast<float>(elapsed), static_cast<float>(written / channels)};
+    }
+    void clear() {
+        // Solo después de cerrar el stream de entrada.
+        phase.store(Idle); samples.clear();
+    }
+};
+
 class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioStreamErrorCallback {
     std::shared_ptr<oboe::AudioStream> input, output;
     SBEngine *engine = nullptr;
     CaptureRing capture;
+    InputDiagnostic diagnostic;
     std::array<float, MAX_FRAMES> inLeft{}, inRight{}, outLeft{}, outRight{};
     std::atomic<int32_t> error{0};
     int inputChannels = 1;
@@ -80,6 +135,7 @@ public:
     void stop() {
         if (output) { output->requestStop(); output->close(); output.reset(); }
         if (input) { input->requestStop(); input->close(); input.reset(); }
+        diagnostic.clear();
     }
     void start(int inputDevice, int outputDevice, double advance) {
         stop(); error.store(0);
@@ -154,6 +210,7 @@ public:
             if (!data || frames <= 0) return oboe::DataCallbackResult::Continue;
             const auto *in = static_cast<const float *>(data);
             receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
+            diagnostic.append(in, frames);
             capture.push(in, static_cast<uint32_t>(frames), inputChannels);
             bool active = false;
             const int inspected = std::min(frames, MAX_FRAMES);
@@ -215,6 +272,10 @@ public:
         }
         return values;
     }
+    bool beginDiagnostic() {
+        return input && diagnostic.begin(input->getSampleRate(), inputChannels);
+    }
+    const InputDiagnostic &inputDiagnostic() const { return diagnostic; }
     bool arm(int bank, double bpm, double anchor, double tapSeconds) {
         if (!engine) return false;
         if (tapSeconds >= 0.0) {
@@ -279,6 +340,26 @@ extern "C" JNIEXPORT jdoubleArray JNICALL Java_com_example_soinubiderxl_NativeAu
     auto array = env->NewDoubleArray(values.size());
     if (array) env->SetDoubleArrayRegion(array, 0, values.size(), values.data());
     return array;
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_example_soinubiderxl_NativeAudio_beginDiagnostic(
+    JNIEnv *env, jobject, jlong handle) {
+    auto *s = get(env, handle); if (!s) return JNI_FALSE;
+    try { return s->beginDiagnostic() ? JNI_TRUE : JNI_FALSE; }
+    catch (const std::exception &e) { report(env, e.what()); return JNI_FALSE; }
+}
+extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_soinubiderxl_NativeAudio_readDiagnostic(
+    JNIEnv *env, jobject, jlong handle) {
+    auto *s = get(env, handle); if (!s) return nullptr;
+    const auto &capture = s->inputDiagnostic();
+    if (!capture.ready()) return nullptr;
+    const auto header = capture.header();
+    const auto &data = capture.data();
+    auto result = env->NewFloatArray(static_cast<jsize>(data.size() + header.size()));
+    if (result) {
+        env->SetFloatArrayRegion(result, 0, header.size(), header.data());
+        env->SetFloatArrayRegion(result, header.size(), data.size(), data.data());
+    }
+    return result;
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_com_example_soinubiderxl_NativeAudio_arm(
     JNIEnv *env, jobject, jlong handle, jint bank, jdouble bpm, jdouble anchor, jdouble tap) {

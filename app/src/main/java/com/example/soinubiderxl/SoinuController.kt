@@ -196,6 +196,29 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         clearSync()
         state = state.copy(audioRunning = false, inputPeak = 0f, route = "Audio detenido")
     }
+    // Se llama desde la pantalla, en Main. Toda consulta JNI termina antes de
+    // abrir el selector de archivos, que puede detener la actividad y el audio.
+    suspend fun captureInputDiagnostic(): ByteArray {
+        check(state.audioRunning && handle != 0L) { "Conecta la tarjeta y abre el audio primero." }
+        val active = handle
+        val activeGeneration = generation
+        val route = state.route
+        check(NativeAudio.beginDiagnostic(active)) { "Ya hay una captura en curso." }
+        val raw = withTimeout(7_000) {
+            var result: FloatArray? = null
+            while (result == null) {
+                delay(50)
+                check(handle == active && state.audioRunning && generation == activeGeneration) {
+                    "La ruta de audio ha cambiado. Repite la captura."
+                }
+                result = NativeAudio.readDiagnostic(active)
+            }
+            result
+        }
+        val snapshot = NativeAudio.snapshot(active)
+        return withContext(Dispatchers.Default) { diagnosticWav(raw, route, snapshot) }
+    }
+
     private fun poll() {
         data class AnalysisBatch(
             val generation: Int, val rate: Double, val range: AutoBpmRange,
@@ -498,4 +521,35 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         if (handle != 0L) { NativeAudio.destroy(handle); handle = 0L }
         super.onCleared()
     }
+}
+
+// WAV IEEE float sin normalización: conservar los valores originales permite
+// detectar formato mal interpretado, clipping, canales intercalados y silencios.
+internal fun diagnosticWav(raw: FloatArray, route: String, snapshot: DoubleArray): ByteArray {
+    require(raw.size >= 4)
+    val rate = raw[0].toInt()
+    val channels = raw[1].toInt()
+    val frames = raw[3].toInt()
+    require(rate in 8000..192000 && channels in 1..2 && frames > 0)
+    require(raw.size - 4 == frames * channels)
+    val comment = ("SoinuBider input before FIFO; route=$route; " +
+        "rate=$rate; channels=$channels; frames=$frames; callbackElapsedSeconds=${raw[2]}; " +
+        "snapshot=${snapshot.joinToString(",")}; " +
+        "Do not infer physical channel layout from advertised channels.\u0000")
+        .toByteArray(Charsets.UTF_8)
+    val commentSize = comment.size + (comment.size and 1)
+    val dataSize = (raw.size - 4) * 4
+    val out = java.nio.ByteBuffer.allocate(76 + commentSize + dataSize)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    fun id(text: String) { out.put(text.toByteArray(Charsets.US_ASCII)) }
+    id("RIFF"); out.putInt(out.capacity() - 8); id("WAVE")
+    id("fmt "); out.putInt(16); out.putShort(3.toShort()); out.putShort(channels.toShort())
+    out.putInt(rate); out.putInt(rate * channels * 4); out.putShort((channels * 4).toShort()); out.putShort(32.toShort())
+    id("fact"); out.putInt(4); out.putInt(frames)
+    id("LIST"); out.putInt(12 + commentSize); id("INFO"); id("ICMT"); out.putInt(comment.size)
+    out.put(comment); if ((comment.size and 1) != 0) out.put(0.toByte())
+    id("data"); out.putInt(dataSize)
+    for (index in 4 until raw.size) out.putFloat(raw[index])
+    check(!out.hasRemaining())
+    return out.array()
 }

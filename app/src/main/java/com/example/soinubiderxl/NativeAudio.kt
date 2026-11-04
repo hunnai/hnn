@@ -6,6 +6,8 @@ object NativeAudio {
     init { System.loadLibrary("soinubider") }
     external fun create(): Long
     external fun start(handle: Long, inputDevice: Int, outputDevice: Int, advance: Double)
+    external fun beginDiagnostic(handle: Long): Boolean
+    external fun readDiagnostic(handle: Long): FloatArray?
     external fun stop(handle: Long)
     external fun destroy(handle: Long)
     external fun snapshot(handle: Long): DoubleArray

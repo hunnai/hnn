@@ -15,3 +15,17 @@ Validación: C++17 -Wall -Wextra -Werror -fsyntax-only con cabeceras oficiales O
 Actualización posterior: la lectura de entrada desde la salida se sustituye por entrega mediante callback y anillo SPSC. Véase `usb-callback/README.md` para las semánticas actuales de los contadores, campos añadidos y pruebas. El perfil USB sigue siendo Generic y la ruta se solicita por ID; no se ha confirmado la solución en hardware.
 
 Nueva prueba: negociar frecuencia nativa de salida y compartirla con entrada/motor, con retorno a 48 kHz fuera del rango del motor. Ver usb-callback/README.md para evidencia del registro, validación y límites.
+
+## Diagnóstico de muestras anterior al anillo
+
+La prueba PCM16 se retiró: el usuario observó LED a máximo tras instalarla. No se ha confirmado la causa; se restaura la captura float previa, que entregaba música distorsionada. La Behringer funciona con el mismo teléfono; esto no identifica por sí solo qué componente falla con la Traktor.
+
+Se añade en Ajustes «Diagnóstico de entrada / Guardar diagnóstico». Solo tras pulsar el botón, se reserva fuera del callback un buffer para cuatro segundos nominales de los canales que el stream entrega (máximo dos). El callback copia las muestras float originales ANTES del anillo y sus descartes. Una fase atómica publica el buffer completo; no hay reserva, espera ni acceso a disco en el callback. Solo se lee cuando está completo. Se vacía con el stream detenido. No se cambia la selección, el formato, el reloj, la reproducción ni el detector.
+
+El controlador extrae una copia mediante JNI en Main, con límite de siete segundos y comprobación de generación/ruta. Construye un WAV IEEE float sin normalizar en Default. El archivo incluye frecuencia, canales, frames, tiempo real entre callbacks y snapshot en LIST/INFO/ICMT. No es acceso USB directo ni captura los diez canales físicos: conserva exactamente el par presentado a la app. No puede reparar datos ya deteriorados por Android.
+
+La pantalla abre el selector de archivo DESPUÉS de terminar JNI y la codificación; así, el cierre de audio por ON_STOP al mostrar el selector no invalida buffers nativos. Escribe la copia en IO, mediante ACTION_CREATE_DOCUMENT, sin permisos de almacenamiento adicionales. No sube, envía ni reproduce audio automáticamente. El usuario puede cancelar. Si se pierde el estado de pantalla antes del resultado, se pide repetir. Si no llega una muestra completa, se indica cerrar y abrir la app para repetir.
+
+Uso en teléfono: actualizar SBAudioAndroid.cpp, NativeAudio.kt, SoinuController.kt y MainActivity.kt juntos, generar APK firmado con la misma clave e instalar. Con Traktor y música, mantener la salida del mezclador baja, abrir Ajustes y pulsar Guardar diagnóstico. Guardar soinu_entrada.wav en Descargas y adjuntarlo al chat para análisis, sin escucharlo. Es una versión de diagnóstico, no una solución confirmada.
+
+Validación: sintaxis C++ con cabeceras oficiales Oboe/JNI; captura completa bajo desbordamiento deliberado del anillo, publicación entre dos hilos, rechazo de solicitudes simultáneas, reinicio y cierre. Pruebas Session USB estéreo/micrófono mono con motor C real y ASan/UBSan pasan. Compilación de todo Kotlin/Compose con Android/AndroidX y stub API35 pasa. TestInputDiagnostic valida mono/estéreo, estructura RIFF/fact/LIST/data, rechazo de formato inválido y conservación de floats fuera de rango/NaN/Inf. scipy.io.wavfile vuelve a leer ambos archivos y confirma frecuencia, forma y muestras. Pendiente build APK, selector de archivos real y captura Redmi/Traktor.

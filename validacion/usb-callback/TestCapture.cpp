@@ -100,8 +100,49 @@ static void testSession(int inputDevice) {
     assert(snapshot[46]==0 && snapshot[49]==0 && snapshot[2]==0);
     std::cout<<"PASS Session "<<(inputDevice?"USB stereo":"phone mono")<<": callbacks feed real C engine, record/play, fixed routing and cleared capture on restart; no read() calls\n";
 }
+static void testInputDiagnostic() {
+    oboe::opened.clear();
+    oboe::nativeUsbRate=48000;
+    auto session=std::make_unique<Session>();
+    session->start(266,261,0);
+    auto input=oboe::opened.back();
+    assert(!session->inputDiagnostic().ready());
+    assert(session->beginDiagnostic());
+    assert(!session->beginDiagnostic());
+    constexpr int total=48000*4;
+    std::thread producer([&] {
+        std::array<float,137*2> block{};
+        for (int position=0; position<total;) {
+            const int count=std::min(137,total-position);
+            for(int i=0;i<count;++i) {
+                block[i*2]=float(position+i)-100000;
+                block[i*2+1]=-block[i*2];
+            }
+            input->callback->onAudioReady(input.get(),block.data(),count);
+            position+=count;
+        }
+    });
+    while(!session->inputDiagnostic().ready()) std::this_thread::yield();
+    const auto &diagnostic=session->inputDiagnostic();
+    const auto header=diagnostic.header();
+    assert(header[0]==48000 && header[1]==2 && header[2]>=0 && header[3]==total);
+    const auto &samples=diagnostic.data();
+    assert(samples.size()==total*2);
+    for(int i=0;i<total;++i) {
+        assert(samples[i*2]==float(i)-100000);
+        assert(samples[i*2+1]==-samples[i*2]);
+    }
+    producer.join();
+    // No se consumió el anillo: verificar captura íntegra pese a sus descartes.
+    assert(session->snapshot()[50]>0);
+    assert(session->beginDiagnostic());
+    assert(!session->inputDiagnostic().ready());
+    session->stop();
+    assert(!session->inputDiagnostic().ready() && !session->beginDiagnostic());
+    std::cout<<"PASS input diagnostic: raw samples before FIFO drops, concurrent publish, bounded capture, restart and stop\n";
+}
 int main() {
-    testRing(); testSession(266); testSession(0);
+    testRing(); testSession(266); testSession(0); testInputDiagnostic();
     oboe::nativeUsbRate=384000;
     testSession(266);
     std::cout<<"PASS native rate: USB 96 kHz and phone 48 kHz shared with input/engine; fallback to 48 kHz beyond engine range\n";
