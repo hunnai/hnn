@@ -36,6 +36,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,10 +49,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.util.Locale
 import kotlin.math.*
 
@@ -111,12 +112,18 @@ private fun SoinuScreen(controller: SoinuController) {
     val palette = LocalSoinuPalette.current
     val state = controller.state
     var settings by rememberSaveable { mutableStateOf(false) }
+    var manual by rememberSaveable { mutableStateOf(false) }
     var touching by remember { mutableStateOf(setOf<Int>()) }
-    BackHandler(enabled = settings) { settings = false }
-    if (settings) {
+    BackHandler(enabled = settings || manual) {
+        if (manual) manual = false else settings = false
+    }
+    if (manual) {
+        ManualScreen { manual = false }
+    } else if (settings) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
             controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
-            controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency)
+            controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency,
+            { manual = true })
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
@@ -408,7 +415,8 @@ private fun SettingsScreen(
     maximumChanged: (Int) -> Unit,
     appearanceChanged: (Appearance) -> Unit,
     transparencyChanged: (Float) -> Unit,
-    transparencySaved: () -> Unit
+    transparencySaved: () -> Unit,
+    openManual: () -> Unit
 ) {
     val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
@@ -452,7 +460,10 @@ private fun SettingsScreen(
                     activeTrackColor = palette.lit, inactiveTrackColor = palette.paused)
             )
         }
-
+        Button(onClick = openManual, colors = buttonColors,
+            modifier = Modifier.fillMaxWidth().buttonDepth(50.dp)) {
+            Text("Manual de instrucciones")
+        }
     }
 }
 
@@ -525,4 +536,249 @@ private fun AppearanceSelector(selected: Appearance, changed: (Appearance) -> Un
                 }
             }
     }
+}
+
+
+@Composable
+private fun ManualScreen(close: () -> Unit) {
+    val palette = LocalSoinuPalette.current
+    var viewer by remember { mutableStateOf<ManualPdfView?>(null) }
+    var zoomPercent by remember { mutableStateOf(100) }
+    Column(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Manual", Modifier.weight(1f), fontSize = 24.sp)
+            TextButton(onClick = close) { Text("Volver ✕", color = palette.foreground) }
+        }
+        Text("Desliza para leer. Pellizca para ampliar.", fontSize = 14.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        AndroidView(
+            factory = { context ->
+                ManualPdfView(context).also {
+                    it.onZoomChanged = { percent -> zoomPercent = percent }
+                    it.setBackgroundColor(palette.background.toArgb())
+                    viewer = it
+                }
+            },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            onRelease = { it.release(); viewer = null }
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { viewer?.zoomBy(.8f) }, enabled = zoomPercent > 100,
+                modifier = Modifier.semantics { contentDescription = "Reducir manual" }) { Text("−", fontSize = 24.sp, color = palette.foreground) }
+            Text("$zoomPercent %", Modifier.width(64.dp), textAlign = TextAlign.Center)
+            TextButton(onClick = { viewer?.zoomBy(1.25f) }, enabled = zoomPercent < 400,
+                modifier = Modifier.semantics { contentDescription = "Ampliar manual" }) { Text("+", fontSize = 24.sp, color = palette.foreground) }
+        }
+    }
+}
+
+// Geometría independiente del visor y del renderer: también se comprueba en JVM.
+internal class ManualViewport {
+    var zoom = 1f; private set
+    var x = 0f; private set
+    var y = 0f; private set
+    private var width = 0f
+    private var height = 0f
+    private var documentHeight = 0f
+    val minX: Float get() = minOf(0f, width - width * zoom)
+    val minY: Float get() = minOf(0f, height - documentHeight * zoom)
+    fun layout(viewWidth: Float, viewHeight: Float, contentHeight: Float) {
+        width = viewWidth.coerceAtLeast(0f)
+        height = viewHeight.coerceAtLeast(0f)
+        documentHeight = contentHeight.coerceAtLeast(0f)
+        moveTo(x, y)
+    }
+    fun moveTo(nextX: Float, nextY: Float) {
+        x = nextX.coerceIn(minX, 0f)
+        y = nextY.coerceIn(minY, 0f)
+    }
+    fun zoomAt(next: Float, focusX: Float, focusY: Float) {
+        if (!next.isFinite()) return
+        val documentX = (focusX - x) / zoom
+        val documentY = (focusY - y) / zoom
+        zoom = next.coerceIn(1f, 4f)
+        moveTo(focusX - documentX * zoom, focusY - documentY * zoom)
+    }
+}
+
+private class ManualPdfView(context: android.content.Context) : android.view.View(context) {
+    var onZoomChanged: (Int) -> Unit = {}
+    private val viewport = ManualViewport()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+    private val scroller = android.widget.OverScroller(context)
+    private val margin = 12f * resources.displayMetrics.density
+    private var pages = emptyList<android.graphics.Bitmap>()
+    private var message = "Cargando manual…"
+    private var released = false
+    private var scaledSequence = false
+    private val gestures = android.view.GestureDetector(context,
+        object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: android.view.MotionEvent): Boolean {
+                scroller.forceFinished(true)
+                return true
+            }
+            override fun onScroll(first: android.view.MotionEvent?, event: android.view.MotionEvent,
+                                  distanceX: Float, distanceY: Float): Boolean {
+                viewport.moveTo(viewport.x - distanceX, viewport.y - distanceY)
+                invalidate()
+                return true
+            }
+            override fun onFling(first: android.view.MotionEvent?, event: android.view.MotionEvent,
+                                 velocityX: Float, velocityY: Float): Boolean {
+                scroller.fling(viewport.x.roundToInt(), viewport.y.roundToInt(), velocityX.roundToInt(), velocityY.roundToInt(),
+                    viewport.minX.roundToInt(), 0, viewport.minY.roundToInt(), 0)
+                postInvalidateOnAnimation()
+                return true
+            }
+            override fun onDoubleTap(event: android.view.MotionEvent): Boolean {
+                setZoom(if (viewport.zoom < 2f) 2.5f else 1f, event.x, event.y)
+                return true
+            }
+            override fun onSingleTapUp(event: android.view.MotionEvent): Boolean { performClick(); return true }
+        })
+    private val scaling = android.view.ScaleGestureDetector(context,
+        object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                setZoom(viewport.zoom * detector.scaleFactor, detector.focusX, detector.focusY)
+                return true
+            }
+        }).apply { isQuickScaleEnabled = false }
+    init {
+        contentDescription = "Manual de instrucciones. Desliza para leer y pellizca para ampliar."
+        isFocusable = true
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        scope.launch {
+            val loaded = mutableListOf<android.graphics.Bitmap>()
+            try {
+                withContext(Dispatchers.IO) { renderManual(context, loaded) }
+                pages = loaded.toList()
+                loaded.clear()
+                updateLayout()
+                invalidate()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                message = "No se pudo abrir el manual.\nReinstala la actualización completa."
+                invalidate()
+            } finally {
+                loaded.forEach { it.recycle() }
+            }
+        }
+    }
+    private fun updateLayout() {
+        val pageWidth = (width - margin * 2).coerceAtLeast(1f)
+        val contentHeight = margin * 2 + pages.sumOf { pageWidth.toDouble() * it.height / it.width }.toFloat() +
+            margin * (pages.size - 1).coerceAtLeast(0)
+        viewport.layout(width.toFloat(), height.toFloat(), contentHeight)
+    }
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateLayout()
+    }
+    private fun setZoom(value: Float, focusX: Float, focusY: Float) {
+        scroller.forceFinished(true)
+        viewport.zoomAt(value, focusX, focusY)
+        onZoomChanged((viewport.zoom * 100).roundToInt())
+        invalidate()
+    }
+    fun zoomBy(factor: Float) { setZoom(viewport.zoom * factor, width / 2f, height / 2f) }
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        if (pages.isEmpty()) {
+            paint.color = android.graphics.Color.WHITE
+            paint.textSize = android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
+            message.lines().forEachIndexed { index, line ->
+                canvas.drawText(line, margin, margin + paint.textSize * (1 + index * 1.4f), paint)
+            }
+            return
+        }
+        canvas.save()
+        canvas.translate(viewport.x, viewport.y)
+        canvas.scale(viewport.zoom, viewport.zoom)
+        val pageWidth = (width - margin * 2).coerceAtLeast(1f)
+        var top = margin
+        for (bitmap in pages) {
+            val pageHeight = pageWidth * bitmap.height / bitmap.width
+            canvas.drawBitmap(bitmap, null, android.graphics.RectF(margin, top, margin + pageWidth, top + pageHeight), paint)
+            top += pageHeight + margin
+        }
+        canvas.restore()
+    }
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) scaledSequence = false
+        if (event.pointerCount > 1 && !scaledSequence) {
+            scaledSequence = true
+            scroller.forceFinished(true)
+            val cancel = android.view.MotionEvent.obtain(event)
+            cancel.action = android.view.MotionEvent.ACTION_CANCEL
+            gestures.onTouchEvent(cancel)
+            cancel.recycle()
+        }
+        parent?.requestDisallowInterceptTouchEvent(true)
+        scaling.onTouchEvent(event)
+        if (!scaledSequence) gestures.onTouchEvent(event)
+        if (event.actionMasked == android.view.MotionEvent.ACTION_UP || event.actionMasked == android.view.MotionEvent.ACTION_CANCEL)
+            parent?.requestDisallowInterceptTouchEvent(false)
+        return true
+    }
+    override fun performClick(): Boolean { super.performClick(); return true }
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            viewport.moveTo(scroller.currX.toFloat(), scroller.currY.toFloat())
+            postInvalidateOnAnimation()
+        }
+    }
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.isScrollable = viewport.minY < 0
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+    }
+    override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+        val direction = when (action) {
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> -1
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> 1
+            else -> return super.performAccessibilityAction(action, arguments)
+        }
+        viewport.moveTo(viewport.x, viewport.y + direction * height * .8f)
+        invalidate()
+        return true
+    }
+    fun release() {
+        if (released) return
+        released = true
+        scope.cancel()
+        scroller.forceFinished(true)
+        pages.forEach { it.recycle() }
+        pages = emptyList()
+    }
+}
+
+private suspend fun renderManual(context: android.content.Context, destination: MutableList<android.graphics.Bitmap>) {
+    val file = java.io.File.createTempFile("soinu-manual-", ".pdf", context.cacheDir)
+    try {
+        context.assets.open("soinu_manual.pdf").use { input -> file.outputStream().use { input.copyTo(it) } }
+        val descriptor = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+        val renderer = try { android.graphics.pdf.PdfRenderer(descriptor) }
+            catch (error: Exception) { descriptor.close(); throw error }
+        renderer.use {
+            // Resolución acotada para el Redmi; no mantener páginas/renderer abiertos.
+            val targetWidth = (context.resources.displayMetrics.widthPixels * 1.5f).roundToInt().coerceIn(720, 1280)
+            for (index in 0 until it.pageCount) {
+                currentCoroutineContext().ensureActive()
+                it.openPage(index).use { page ->
+                    val pageHeight = (targetWidth.toDouble() * page.height / page.width).roundToInt().coerceAtLeast(1)
+                    val bitmap = android.graphics.Bitmap.createBitmap(targetWidth, pageHeight, android.graphics.Bitmap.Config.ARGB_8888)
+                    try {
+                        bitmap.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        destination.add(bitmap)
+                    } catch (error: Exception) { bitmap.recycle(); throw error }
+                }
+            }
+        }
+    } finally { file.delete() }
 }
