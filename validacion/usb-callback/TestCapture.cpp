@@ -49,6 +49,7 @@ static void testRing() {
 static void testSession(int inputDevice) {
     oboe::opened.clear();
     auto session=std::make_unique<Session>();
+    session->configureInput(0);
     session->start(inputDevice,inputDevice?261:0,0);
     const int opens = inputDevice && (oboe::nativeUsbRate < 8000 || oboe::nativeUsbRate > 192000) ? 3 : 2;
     assert(oboe::opened.size()==static_cast<size_t>(opens));
@@ -105,6 +106,7 @@ static void testInputDiagnostic() {
     oboe::opened.clear();
     oboe::nativeUsbRate=48000;
     auto session=std::make_unique<Session>();
+    session->configureInput(0);
     session->start(266,261,0);
     auto input=oboe::opened.back();
     assert(!session->inputDiagnostic().ready());
@@ -142,40 +144,54 @@ static void testInputDiagnostic() {
     assert(!session->inputDiagnostic().ready() && !session->beginDiagnostic());
     std::cout<<"PASS input diagnostic: raw samples before FIFO drops, concurrent publish, bounded capture, restart and stop\n";
 }
-static void testPairDecoder() {
-    std::vector<float> source(1003*8);
-    for (int frame=0;frame<1003;++frame)
-        for(int lane=0;lane<8;++lane) source[frame*8+lane]=float(frame*10+lane);
-    for(int pair=0;pair<4;++pair) {
-        InputPairDecoder decoder;decoder.reset(pair*2);
-        std::vector<float> output(source.size());uint32_t produced=0;
-        // Límites de callback que cortan grupos, incluso a mitad de un par.
-        for(size_t offset=0;offset<source.size();) {
-            const auto count=std::min<size_t>(37,source.size()-offset);
-            produced+=decoder.decode(source.data()+offset,count,output.data()+produced*2);
-            offset+=count;
+static void testAutomaticRouting() {
+    for (int rate : {48000,96000}) {
+        for(int declared : {1,2}) {
+            AutomaticInputRouter router;router.configure(rate,declared,true,-1);
+            std::vector<float> recovered,source;
+            std::array<float,512> out{};
+            for(int block=0;block<rate*2/256;++block) {
+                std::array<float,512> data{};
+                for(int i=0;i<256*declared;++i) data[i]=float((block*256*declared+i)%8)*.1f;
+                source.insert(source.end(),data.begin(),data.begin()+256*declared);
+                const auto frames=router.process(data.data(),256,block*256,double(block*256)/rate,out.data());
+                recovered.insert(recovered.end(),out.begin(),out.begin()+frames*2);
+            }
+            assert(router.ready() && router.channels()==declared && !recovered.empty());
+            const size_t originalFrames=source.size()/declared;
+            const size_t start=originalFrames-recovered.size()/2;
+            for(size_t i=0;i<recovered.size()/2;++i) {
+                assert(recovered[i*2]==source[(start+i)*declared]);
+                assert(recovered[i*2+1]==source[(start+i)*declared+declared-1]);
+            }
         }
-        assert(produced==1003);
-        for(int frame=0;frame<1003;++frame) {
-            assert(output[frame*2]==source[frame*8+pair*2]);
-            assert(output[frame*2+1]==source[frame*8+pair*2+1]);
-        }
-        decoder.reset(pair*2);
-        assert(decoder.decode(source.data(),7,output.data())==0);
-        decoder.reset(pair*2);
-        assert(decoder.decode(source.data()+8,8,output.data())==1);
-        assert(output[0]==source[8+pair*2]);
     }
-    std::cout<<"PASS eight-channel decoder: all pairs, fragmented callbacks and cleared partial group\n";
+    // Cadencia 4x sin estructura de ocho canales: no reinterpretar un estéreo.
+    AutomaticInputRouter ambiguous;ambiguous.configure(48000,2,true,-1);
+    std::array<float,2048> source{},out{};
+    for(int block=0;block<400;++block) {
+        for(int frame=0;frame<1024;++frame) {
+            const float value=.2f*std::sin(float((block*1024+frame)*.001));
+            source[frame*2]=source[frame*2+1]=value;
+        }
+        assert(ambiguous.process(source.data(),1024,block*256,double(block*256)/48000,out.data())==0);
+    }
+    assert(!ambiguous.ready());
+    // Ruta validada anteriormente: empezar directamente, incluso en silencio.
+    AutomaticInputRouter cached;cached.configure(96000,2,true,8);
+    source.fill(0);
+    assert(cached.ready() && cached.process(source.data(),1024,0,0,out.data())==256);
+    std::cout<<"PASS automatic layout: mono/stereo at 48/96 kHz, no false 8-lane detection from periodic stereo or 4x cadence alone, cached recovery\n";
 }
-static void testRecoverySession(int pair) {
+static void testRecoverySession() {
+    constexpr int pair=0;
     oboe::opened.clear(); oboe::nativeUsbRate=96000;
     auto session=std::make_unique<Session>();
-    session->setInputLayout(8,pair);
+    session->configureInput(8);
     session->start(266,261,0);
     auto output=oboe::opened[0], input=oboe::opened[1];
     bool rejected=false;
-    try { session->setInputLayout(0,0); } catch(const std::runtime_error &) { rejected=true; }
+    try { session->configureInput(0); } catch(const std::runtime_error &) { rejected=true; }
     assert(rejected);
     assert(session->arm(0,120,0,-1));
     constexpr int frames=1024;
@@ -205,9 +221,36 @@ static void testRecoverySession(int pair) {
         position+=frames;
     }
     assert(audible && session->snapshot()[7]==3);
-    session->stop();session->setInputLayout(0,0);session->start(266,261,0);
+    session->stop();session->configureInput(0);session->start(266,261,0);
     assert(session->snapshot()[56]==0 && session->snapshot()[55]==0);
     std::cout<<"PASS recovery Session pair "<<pair+1<<": reconstructed rate, no FIFO drops, selected audio and real C loop playback\n";
+}
+static void testFreshAutomaticSession(bool packed) {
+    oboe::opened.clear(); oboe::nativeUsbRate=packed?96000:48000;
+    const int rate=oboe::nativeUsbRate;
+    auto session=std::make_unique<Session>();session->configureInput(-1);
+    session->start(266,261,0);
+    auto output=oboe::opened[0];
+    assert(!session->arm(0,120,0,-1)); // No grabar mientras se clasifica la ruta.
+    std::array<float,256*8> source{};std::array<float,256*2> out{};
+    bool armed=false,audible=false;
+    const int stride=packed?8:2;
+    for(int block=0;block<1200;++block) {
+        for(int frame=0;frame<256;++frame) for(int lane=0;lane<stride;++lane)
+            source[frame*stride+lane]=float(.2*std::sin((block*256+frame)*2*3.141592653589793*(440+lane*70)/rate));
+        session->receiveInput(source.data(),packed?1024:256,double(block*256)/rate);
+        auto snapshot=session->snapshot();
+        if(snapshot[58]==1 && !armed) { assert(session->arm(0,120,0,-1)); armed=true; }
+        output->callback->onAudioReady(output.get(),out.data(),256);
+        snapshot=session->snapshot();
+        assert(snapshot[50]==0); // No desbordamiento durante ni después de calibrar.
+        if(snapshot[58]==1) assert(snapshot[56]==(packed?8:0) && snapshot[57]==0);
+        for(float value:out) { assert(std::isfinite(value)); audible|=std::fabs(value)>.1f; }
+        std::array<float,1024> analysis{};uint64_t start=0;
+        while(session->read(analysis.data(),analysis.size(),&start)>0) {}
+    }
+    assert(armed && audible && session->snapshot()[7]==3);
+    std::cout<<"PASS fresh automatic Session "<<(packed?"packed eight":"normal stereo")<<": layout, no FIFO drops and first-pair C loop record/play\n";
 }
 // Fixture privada opcional: no se publica audio subido por el usuario.
 static void decodeUploadedFixture(const char *path) {
@@ -220,19 +263,25 @@ static void decodeUploadedFixture(const char *path) {
         assert(offset+8+bytes<=wav.size());
         if(std::memcmp(wav.data()+offset,"data",4)==0) {
             assert(bytes%32==0);
-            std::vector<float> source(bytes/4),out(bytes/4);
+            std::vector<float> source(bytes/4),out(bytes/4),recovered;
             std::memcpy(source.data(),wav.data()+offset+8,bytes);
-            for(int pair=0;pair<4;++pair) {
-                InputPairDecoder decoder;decoder.reset(pair*2);uint32_t produced=0;
-                for(size_t position=0;position<source.size();) {
-                    const auto count=std::min<size_t>(864,source.size()-position);
-                    produced+=decoder.decode(source.data()+position,count,out.data()+produced*2);
-                    position+=count;
+            for(int hint : {-1,8}) {
+                AutomaticInputRouter router;router.configure(96000,2,true,hint);
+                recovered.clear(); uint32_t rawFrames=0;
+                for(int repeat=0;repeat<2;++repeat) for(size_t position=0;position<source.size();) {
+                    const auto count=std::min<size_t>(862,source.size()-position);
+                    const auto produced=router.process(source.data()+position,count/2,
+                        rawFrames/4,double(rawFrames)/4/96000,out.data());
+                    recovered.insert(recovered.end(),out.begin(),out.begin()+produced*2);
+                    rawFrames+=count/2;position+=count;
                 }
-                assert(produced==source.size()/8);
-                for(uint32_t frame=0;frame<produced;++frame) {
-                    assert(out[frame*2]==source[frame*8+pair*2]);
-                    assert(out[frame*2+1]==source[frame*8+pair*2+1]);
+                assert(router.ready() && router.channels()==8 && !recovered.empty());
+                const size_t totalFrames=source.size()/8*2;
+                const size_t start=totalFrames-recovered.size()/2;
+                for(size_t frame=0;frame<recovered.size()/2;++frame) {
+                    const size_t original=(start+frame)%(source.size()/8);
+                    assert(recovered[frame*2]==source[original*8]);
+                    assert(recovered[frame*2+1]==source[original*8+1]);
                 }
             }
             found=true;break;
@@ -240,12 +289,13 @@ static void decodeUploadedFixture(const char *path) {
         offset+=8+bytes+(bytes%2);
     }
     assert(found);
-    std::cout<<"PASS uploaded raw fixture: four recovered pairs preserve exact samples and 4:1 frame mapping\n";
+    std::cout<<"PASS uploaded raw fixture: automatic detection and cached recovery match exact validated first-pair samples, including fragmented groups\n";
 }
 int main(int argc, char **argv) {
     testRing(); testSession(266); testSession(0); testInputDiagnostic();
-    testPairDecoder();
-    for(int pair=0;pair<4;++pair) testRecoverySession(pair);
+    testAutomaticRouting();
+    testRecoverySession();
+    testFreshAutomaticSession(false); testFreshAutomaticSession(true);
     if(argc>1) decodeUploadedFixture(argv[1]);
     oboe::nativeUsbRate=384000;
     testSession(266);

@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -117,10 +116,7 @@ private fun SoinuScreen(controller: SoinuController) {
     if (settings) {
         SettingsScreen(state, { settings = false }, controller::saveAdvance,
             controller::resetSavedAdvance, controller::setAutoMinimum, controller::setAutoMaximum,
-            controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency,
-            controller::captureInputDiagnostic, controller.usbInputAvailable,
-            controller.inputRecovery, controller.inputPair,
-            controller::changeInputRecovery, controller::selectInputPair)
+            controller::setAppearance, controller::setButtonTransparency, controller::saveButtonTransparency)
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().soinuBackground(palette).safeDrawingPadding()) {
             // Conserva las proporciones de la referencia y permite desplazar
@@ -412,13 +408,7 @@ private fun SettingsScreen(
     maximumChanged: (Int) -> Unit,
     appearanceChanged: (Appearance) -> Unit,
     transparencyChanged: (Float) -> Unit,
-    transparencySaved: () -> Unit,
-    captureDiagnostic: suspend () -> ByteArray,
-    usbInputAvailable: Boolean,
-    inputRecovery: Boolean,
-    inputPair: Int,
-    recoveryChanged: (Boolean) -> Unit,
-    inputPairChanged: (Int) -> Unit
+    transparencySaved: () -> Unit
 ) {
     val palette = LocalSoinuPalette.current
     fun format(value: Double) = if (abs(value) < .5) "0 ms" else String.format(Locale.getDefault(), "%+.0f ms", value)
@@ -462,101 +452,7 @@ private fun SettingsScreen(
                     activeTrackColor = palette.lit, inactiveTrackColor = palette.paused)
             )
         }
-        if (usbInputAvailable) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Entrada USB", fontSize = 18.sp)
-                AudioInputChoice(
-                    if (inputRecovery) 1 else 0,
-                    listOf("Estéreo normal", "Recuperación de 8 canales"),
-                    "Modo de entrada"
-                ) { recoveryChanged(it == 1) }
-                if (inputRecovery) AudioInputChoice(inputPair,
-                    listOf("Canales 1–2", "Canales 3–4", "Canales 5–6", "Canales 7–8"),
-                    "Par de entrada", inputPairChanged)
-                Text("Los cambios reinician el audio. La selección se guarda para esta tarjeta.", fontSize = 14.sp)
-            }
-        }
-        InputDiagnosticControls(state.audioRunning, captureDiagnostic)
-    }
-}
 
-@Composable
-private fun AudioInputChoice(selected: Int, options: List<String>, description: String, changed: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()
-            .semantics { contentDescription = description }) {
-            Text(options[selected] + " ▾")
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEachIndexed { index, label ->
-                DropdownMenuItem(text = { Text(label) }, onClick = {
-                    expanded = false
-                    changed(index)
-                })
-            }
-        }
-    }
-}
-
-@Composable
-private fun InputDiagnosticControls(audioRunning: Boolean, capture: suspend () -> ByteArray) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-    var pending by remember { mutableStateOf<ByteArray?>(null) }
-    val document = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav")) { uri ->
-        val bytes = pending
-        pending = null
-        if (uri == null) {
-            busy = false
-            message = "Guardado cancelado."
-        } else if (bytes == null) {
-            busy = false
-            message = "La muestra ya no está disponible. Repite la captura."
-        } else {
-            scope.launch {
-                try {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val stream = checkNotNull(context.contentResolver.openOutputStream(uri)) {
-                            "No se pudo abrir el archivo."
-                        }
-                        stream.use { it.write(bytes) }
-                    }
-                    message = "Archivo guardado. Puedes enviarlo para revisar el audio."
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    message = "No se pudo guardar: ${e.message}"
-                } finally { busy = false }
-            }
-        }
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Diagnóstico de entrada", fontSize = 18.sp)
-        Text("Guarda una muestra breve de la entrada para revisar el problema de audio. No la reproduzcas si hay ruido.", fontSize = 14.sp)
-        Button(enabled = audioRunning && !busy, onClick = {
-            busy = true
-            message = "Recogiendo la entrada… Mantén la música sonando."
-            scope.launch {
-                try {
-                    pending = capture()
-                    message = "Elige dónde guardar el diagnóstico."
-                    document.launch("soinu_entrada.wav")
-                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                    busy = false
-                    message = "No llegó una muestra completa. Cierra y abre la app para repetir."
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    busy = false
-                    pending = null
-                    message = "No se pudo capturar: ${e.message}"
-                }
-            }
-        }) { Text(if (busy) "Preparando…" else "Guardar diagnóstico") }
-        if (message.isNotEmpty()) Text(message, fontSize = 14.sp)
     }
 }
 

@@ -45,24 +45,6 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         private set
 
     private var inputPreferenceKey: String? = null
-    var inputRecovery by mutableStateOf(false); private set
-    var inputPair by mutableStateOf(0); private set
-    var usbInputAvailable by mutableStateOf(false); private set
-
-    fun changeInputRecovery(enabled: Boolean) {
-        val key = inputPreferenceKey ?: return
-        if (inputRecovery == enabled) return
-        preferences.edit().putBoolean("$key/recovery8", enabled).apply()
-        suspendAudio()
-        start()
-    }
-    fun selectInputPair(pair: Int) {
-        val key = inputPreferenceKey ?: return
-        if (pair !in 0..3 || inputPair == pair) return
-        preferences.edit().putInt("$key/pair", pair).apply()
-        suspendAudio()
-        start()
-    }
 
     private fun readSaved(): Double = preferences.getString("advanceMS", "0")
         ?.toDoubleOrNull()?.takeIf { it.isFinite() && abs(it) <= 2000 } ?: 0.0
@@ -196,12 +178,20 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
             inputPreferenceKey = input?.let {
                 "input/${it.productName}/${if (Build.VERSION.SDK_INT >= 28) it.address else ""}"
             }
-            usbInputAvailable = input != null
-            inputRecovery = inputPreferenceKey?.let { preferences.getBoolean("$it/recovery8", false) } ?: false
-            inputPair = inputPreferenceKey?.let { preferences.getInt("$it/pair", 0).coerceIn(0, 3) } ?: 0
+            // Migrar la recuperación que el usuario ya comprobó. Para rutas
+            // nuevas, calibrar por cadencia y patrón, sin selector en Ajustes.
+            val key = inputPreferenceKey
+            val build = key?.let { preferences.getString("$it/layoutBuild", null) }
+            val validated = when {
+                key == null -> 0
+                build == Build.FINGERPRINT && preferences.contains("$key/recovery8") ->
+                    if (preferences.getBoolean("$key/recovery8", false)) 8 else 0
+                build == null && preferences.getBoolean("$key/recovery8", false) -> 8
+                else -> -1
+            }
             if (handle == 0L) handle = NativeAudio.create()
             check(handle != 0L) { "No se pudo crear el motor C" }
-            NativeAudio.setInputLayout(handle, if (inputRecovery) 8 else 0, inputPair)
+            NativeAudio.configureInput(handle, validated)
             NativeAudio.start(handle, input?.id ?: 0, output?.id ?: 0, state.savedAdvanceMS)
             tap.reset(); lastTap = null; pending.clear(); generation++
             state = state.copy(audioRunning = true, tempo = null, tapCount = 0,
@@ -309,6 +299,16 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             check(snapshot[3] == 0.0) { "El dispositivo de audio se ha desconectado." }
                             audioClock = snapshot[1]
                             audioRate = snapshot[0]
+                            val routeKey = inputPreferenceKey
+                            if (routeKey != null && snapshot.size >= 59 && snapshot[58] == 1.0) {
+                                val packed = snapshot[56] == 8.0
+                                if (preferences.getString("$routeKey/layoutBuild", null) != Build.FINGERPRINT ||
+                                    !preferences.contains("$routeKey/recovery8") ||
+                                    preferences.getBoolean("$routeKey/recovery8", false) != packed) {
+                                    preferences.edit().putBoolean("$routeKey/recovery8", packed)
+                                        .putString("$routeKey/layoutBuild", Build.FINGERPRINT).apply()
+                                }
+                            }
                             val result = completed.tryReceive().getOrNull()
                             if (result != null && result.generation == generation) latest = result
                             val now = System.nanoTime()

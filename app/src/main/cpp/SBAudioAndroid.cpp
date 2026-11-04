@@ -66,25 +66,83 @@ public:
     uint32_t dropped() const { return droppedFrames.load(std::memory_order_relaxed); }
 };
 
-// Recuperación explícita para una ruta que entrega grupos de ocho valores
-// como si fueran cuatro frames estéreo. No se aplica a una entrada normal.
-class InputPairDecoder final {
+// Siempre entrega el primer par. Solo reconstruye grupos de ocho cuando una
+// calibración previa de esta ruta lo confirmó o coinciden cadencia y estructura.
+class AutomaticInputRouter final {
+    int rate = 48000, declared = 2, stride = 2;
+    bool baseline = false;
+    uint64_t seenFrames = 0, baseFrames = 0;
+    uint32_t baseOutput = 0;
+    double baseTime = 0;
+    int candidateLayout = 0, layoutVotes = 0;
     std::array<float, 8> group{};
-    int filled = 0, first = 0;
+    int filled = 0, skip = 0;
+    std::array<double, 8> history{};
+    uint64_t historyCount = 0;
+    double difference2 = 0, difference8 = 0;
+    std::atomic<uint32_t> resolvedChannels{0};
 public:
-    void reset(int firstChannel) { filled = 0; first = firstChannel; }
-    // El destino admite 2 * ceil((count + 7) / 8) floats.
-    uint32_t decode(const float *source, uint32_t count, float *destination) {
-        uint32_t frames = 0;
-        for (uint32_t i = 0; i < count; ++i) {
-            group[filled++] = source[i];
-            if (filled == 8) {
-                destination[frames * 2] = group[first];
-                destination[frames * 2 + 1] = group[first + 1];
-                ++frames; filled = 0;
+    void configure(int sampleRate, int channels, bool usb, int validatedHint) {
+        rate = sampleRate; declared = channels;
+        stride = usb && validatedHint == 8 && channels == 2 ? 8 : declared;
+        seenFrames = baseFrames = 0; baseOutput = 0; baseTime = 0; baseline = false;
+        candidateLayout = layoutVotes = 0; filled = skip = 0;
+        history.fill(0); historyCount = 0; difference2 = difference8 = 0;
+        resolvedChannels.store(!usb || validatedHint >= 0 ? stride : 0, std::memory_order_release);
+    }
+    bool ready() const { return channels() != 0; }
+    int channels() const { return static_cast<int>(resolvedChannels.load(std::memory_order_acquire)); }
+    uint32_t process(const float *source, uint32_t frames, uint32_t outputFrames,
+                     double now, float *destination) {
+        const uint64_t startScalar = seenFrames * declared;
+        seenFrames += frames;
+        const uint32_t count = frames * declared;
+        if (!ready()) {
+            if (declared == 2) for (uint32_t i = 0; i < count; ++i) {
+                const double value = std::isfinite(source[i]) ? source[i] : 0;
+                if (historyCount >= 8) {
+                    const double a = value - history[(historyCount - 2) & 7];
+                    const double b = value - history[historyCount & 7];
+                    difference2 += a*a; difference8 += b*b;
+                }
+                history[historyCount & 7] = value; ++historyCount;
             }
+            if (!baseline) {
+                baseline = true; baseFrames = seenFrames; baseOutput = outputFrames; baseTime = now;
+                difference2 = difference8 = 0;
+                return 0;
+            }
+            const uint32_t elapsedFrames = outputFrames - baseOutput;
+            if (elapsedFrames < static_cast<uint32_t>(rate / 2)) return 0;
+            const double seconds = now - baseTime;
+            const double outRate = seconds > 0 ? elapsedFrames / seconds : 0;
+            const double ratio = static_cast<double>(seenFrames - baseFrames) / elapsedFrames;
+            const bool periodicEight = difference2 > 1e-14 && difference8 < .55 * difference2;
+            int layout = 0;
+            if (outRate > rate * .75 && outRate < rate * 1.25) {
+                if (ratio > .80 && ratio < 1.20) layout = declared;
+                else if (declared == 2 && ratio > 3.5 && ratio < 4.5 && periodicEight) layout = 8;
+            }
+            if (layout != 0 && candidateLayout == layout) ++layoutVotes;
+            else { candidateLayout = layout; layoutVotes = layout ? 1 : 0; }
+            baseFrames = seenFrames; baseOutput = outputFrames; baseTime = now;
+            difference2 = difference8 = 0;
+            if (layoutVotes < 2) return 0;
+            stride = layout;
+            skip = static_cast<int>((stride - startScalar % stride) % stride);
+            resolvedChannels.store(static_cast<uint32_t>(stride), std::memory_order_release);
         }
-        return frames;
+        uint32_t produced = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (skip) { --skip; continue; }
+            group[filled++] = source[i];
+            if (filled != stride) continue;
+            filled = 0;
+            destination[produced * 2] = group[0];
+            destination[produced * 2 + 1] = group[stride > 1 ? 1 : 0];
+            ++produced;
+        }
+        return produced;
     }
 };
 
@@ -146,9 +204,9 @@ class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioSt
     SBEngine *engine = nullptr;
     CaptureRing capture;
     InputDiagnostic diagnostic;
-    InputPairDecoder pairDecoder;
+    AutomaticInputRouter inputRouter;
     std::array<float, MAX_FRAMES * 2> selectedInput{};
-    int recoveryChannels = 0, selectedPair = 0;
+    int layoutHint = -1;
     std::atomic<uint32_t> deliveredFrames{0};
     std::array<float, MAX_FRAMES> inLeft{}, inRight{}, outLeft{}, outRight{};
     std::atomic<int32_t> error{0};
@@ -163,11 +221,11 @@ public:
         if (input) { input->requestStop(); input->close(); input.reset(); }
         diagnostic.clear();
     }
-    void setInputLayout(int channels, int pair) {
-        if (input || output) throw std::runtime_error("Detén el audio antes de cambiar la entrada");
-        if ((channels != 0 && channels != 8) || pair < 0 || pair > 3)
-            throw std::runtime_error("Selección de entrada inválida");
-        recoveryChannels = channels; selectedPair = pair;
+    void configureInput(int hint) {
+        if (input || output) throw std::runtime_error("El audio debe estar detenido para configurar la entrada");
+        if (hint != -1 && hint != 0 && hint != 8)
+            throw std::runtime_error("Configuración de entrada inválida");
+        layoutHint = hint;
     }
     void start(int inputDevice, int outputDevice, double advance) {
         stop(); error.store(0);
@@ -177,7 +235,6 @@ public:
         emptyReads.store(0); activeReads.store(0); inputCallbacks.store(0);
         capture.clear();
         deliveredFrames.store(0);
-        pairDecoder.reset(selectedPair * 2);
         try {
             oboe::AudioStreamBuilder out;
             out.setDirection(oboe::Direction::Output)
@@ -218,10 +275,9 @@ public:
             }
             checked(result, "No se pudo abrir la entrada");
             inputChannels = input->getChannelCount();
-            if (recoveryChannels == 8 && (inputDevice <= 0 || inputChannels != 2))
-                throw std::runtime_error("La recuperación de ocho canales requiere una entrada USB estéreo declarada");
             if (inputChannels < 1 || inputChannels > 2 || input->getSampleRate() != rate)
                 throw std::runtime_error("Formato de entrada incompatible");
+            inputRouter.configure(rate, inputChannels, inputDevice > 0, layoutHint);
             if (engine) {
                 if (!SBEngineReconfigureRate(engine, rate))
                     throw std::runtime_error("No se pudieron adaptar los loops a la ruta de audio");
@@ -242,33 +298,8 @@ public:
     }
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream, void *data, int32_t frames) override {
         if (stream && stream->getDirection() == oboe::Direction::Input) {
-            inputCallbacks.fetch_add(1, std::memory_order_relaxed);
-            if (!data || frames <= 0) return oboe::DataCallbackResult::Continue;
-            const auto *in = static_cast<const float *>(data);
-            receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
-            diagnostic.append(in, frames);
-            bool active = false;
-            if (recoveryChannels == 8) {
-                // Fragmentos acotados: el callback puede ser mayor que el scratch.
-                for (int offset = 0; offset < frames;) {
-                    const int chunk = std::min(frames - offset, MAX_FRAMES);
-                    const uint32_t mapped = pairDecoder.decode(in + offset * 2,
-                        static_cast<uint32_t>(chunk * 2), selectedInput.data());
-                    capture.push(selectedInput.data(), mapped, 2);
-                    deliveredFrames.fetch_add(mapped, std::memory_order_relaxed);
-                    for (uint32_t i = 0; i < mapped * 2 && !active; ++i)
-                        active = std::fabs(selectedInput[i]) > 1e-5f;
-                    offset += chunk;
-                }
-            } else {
-                capture.push(in, static_cast<uint32_t>(frames), inputChannels);
-                deliveredFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
-                const int inspected = std::min(frames, MAX_FRAMES);
-                for (int i = 0; i < inspected && !active; ++i)
-                    active = std::fabs(in[i * inputChannels]) > 1e-5f ||
-                        std::fabs(in[i * inputChannels + inputChannels - 1]) > 1e-5f;
-            }
-            if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
+            timespec stamp{}; clock_gettime(CLOCK_MONOTONIC, &stamp);
+            receiveInput(static_cast<const float *>(data), frames, stamp.tv_sec + stamp.tv_nsec / 1e9);
             return oboe::DataCallbackResult::Continue;
         }
         auto *out = static_cast<float *>(data);
@@ -286,9 +317,28 @@ public:
         }
         return oboe::DataCallbackResult::Continue;
     }
-    std::array<double, 58> snapshot() {
+    // Método compartido por el callback real y el transporte de prueba.
+    void receiveInput(const float *data, int frames, double now) {
+        inputCallbacks.fetch_add(1, std::memory_order_relaxed);
+        if (!data || frames <= 0) return;
+        receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
+        diagnostic.append(data, frames);
+        bool active = false;
+        for (int offset = 0; offset < frames;) {
+            const int chunk = std::min(frames - offset, MAX_FRAMES);
+            const uint32_t mapped = inputRouter.process(data + static_cast<size_t>(offset) * inputChannels,
+                chunk, requestedFrames.load(std::memory_order_relaxed), now, selectedInput.data());
+            capture.push(selectedInput.data(), mapped, 2);
+            deliveredFrames.fetch_add(mapped, std::memory_order_relaxed);
+            for (uint32_t i = 0; i < mapped * 2 && !active; ++i)
+                active = std::fabs(selectedInput[i]) > 1e-5f;
+            offset += chunk;
+        }
+        if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
+    }
+    std::array<double, 59> snapshot() {
         // Los primeros 37 campos conservan su significado y orden.
-        std::array<double, 58> values{};
+        std::array<double, 59> values{};
         values[3] = error.load();
         values[37] = requestedInputDevice;
         values[38] = input ? input->getDeviceId() : 0;
@@ -309,8 +359,9 @@ public:
         values[53] = input ? static_cast<int>(input->getState()) : 0;
         values[54] = output ? static_cast<int>(output->getState()) : 0;
         values[55] = deliveredFrames.load(std::memory_order_relaxed);
-        values[56] = recoveryChannels;
-        values[57] = selectedPair;
+        values[56] = inputRouter.channels() != inputChannels ? inputRouter.channels() : 0;
+        values[57] = 0;
+        values[58] = inputRouter.ready() ? 1 : 0;
         if (!engine) return values;
         SBSnapshot header{}; SBBankSnapshot banks[6]{};
         SBEngineReadSnapshot(engine, &header, banks);
@@ -331,7 +382,7 @@ public:
     }
     const InputDiagnostic &inputDiagnostic() const { return diagnostic; }
     bool arm(int bank, double bpm, double anchor, double tapSeconds) {
-        if (!engine) return false;
+        if (!engine || !inputRouter.ready()) return false;
         if (tapSeconds >= 0.0) {
             timespec now{};
             if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return false;
@@ -339,7 +390,8 @@ public:
             anchor = static_cast<double>(SBEngineClock(engine)) +
                 (tapSeconds - seconds) * SBEngineRate(engine);
         }
-        return SBEngineArm(engine, bank, bpm, anchor) != 0;
+        const bool accepted = SBEngineArm(engine, bank, bpm, anchor) != 0;
+        return accepted;
     }
     bool command(int op, int bank, double value) {
         if (!engine) return false;
@@ -376,10 +428,10 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_example_soinubiderxl_NativeAudio_cre
     try { return static_cast<jlong>(reinterpret_cast<intptr_t>(new Session())); }
     catch (const std::exception &e) { report(env, e.what()); return 0; }
 }
-extern "C" JNIEXPORT void JNICALL Java_com_example_soinubiderxl_NativeAudio_setInputLayout(
-    JNIEnv *env, jobject, jlong handle, jint channels, jint pair) {
+extern "C" JNIEXPORT void JNICALL Java_com_example_soinubiderxl_NativeAudio_configureInput(
+    JNIEnv *env, jobject, jlong handle, jint hint) {
     auto *s = get(env, handle); if (!s) return;
-    try { s->setInputLayout(channels, pair); }
+    try { s->configureInput(hint); }
     catch (const std::exception &e) { report(env, e.what()); }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_example_soinubiderxl_NativeAudio_start(
