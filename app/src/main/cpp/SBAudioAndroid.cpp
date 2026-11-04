@@ -104,7 +104,7 @@ public:
             oboe::AudioStreamBuilder in;
             in.setDirection(oboe::Direction::Input)
                 ->setSharingMode(oboe::SharingMode::Shared)
-                ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+                ->setPerformanceMode(inputDevice > 0 ? oboe::PerformanceMode::None : oboe::PerformanceMode::LowLatency)
                 ->setFormat(oboe::AudioFormat::Float)->setFormatConversionAllowed(true)
                 ->setSampleRate(rate)
                 ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)

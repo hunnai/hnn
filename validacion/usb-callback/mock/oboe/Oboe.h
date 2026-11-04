@@ -6,7 +6,7 @@
 namespace oboe {
 enum class Direction { Output, Input };
 enum class SharingMode { Shared };
-enum class PerformanceMode { LowLatency };
+enum class PerformanceMode { None, LowLatency };
 enum class AudioFormat { Float };
 enum class SampleRateConversionQuality { Medium };
 enum class InputPreset { Generic = 1, Unprocessed = 9 };
@@ -35,6 +35,7 @@ public:
     Direction direction = Direction::Output;
     int channels = 2, rate = 48000, device = 0;
     AudioStreamDataCallback *callback = nullptr;
+    PerformanceMode performance = PerformanceMode::None;
     InputPreset preset = InputPreset::Generic;
     StreamState state = StreamState::Started;
     Direction getDirection() const { return direction; }
@@ -43,6 +44,7 @@ public:
     int getDeviceId() const { return device; }
     int getFramesPerBurst() const { return 256; }
     InputPreset getInputPreset() const { return preset; }
+    PerformanceMode getPerformanceMode() const { return performance; }
     AudioApi getAudioApi() const { return AudioApi::AAudio; }
     StreamState getState() const { return state; }
     Result requestStop() { return Result::OK; }
@@ -57,7 +59,7 @@ class AudioStreamBuilder {
 public:
     AudioStreamBuilder *setDirection(Direction v) { settings.direction=v; return this; }
     AudioStreamBuilder *setSharingMode(SharingMode) { return this; }
-    AudioStreamBuilder *setPerformanceMode(PerformanceMode) { return this; }
+    AudioStreamBuilder *setPerformanceMode(PerformanceMode mode) { settings.performance=mode; return this; }
     AudioStreamBuilder *setFormat(AudioFormat) { return this; }
     AudioStreamBuilder *setFormatConversionAllowed(bool) { return this; }
     AudioStreamBuilder *setChannelConversionAllowed(bool) { return this; }

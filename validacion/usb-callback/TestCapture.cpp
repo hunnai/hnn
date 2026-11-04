@@ -52,6 +52,8 @@ static void testSession(int inputDevice) {
     assert(oboe::opened.size()==2);
     auto output=oboe::opened[0];auto input=oboe::opened[1];
     assert(input->callback && output->callback);
+    assert(input->getPerformanceMode()==(inputDevice?oboe::PerformanceMode::None:oboe::PerformanceMode::LowLatency));
+    assert(output->getPerformanceMode()==oboe::PerformanceMode::LowLatency);
     assert(input->getDeviceId()==inputDevice);
     assert(input->getInputPreset()==(inputDevice?oboe::InputPreset::Generic:oboe::InputPreset::Unprocessed));
     const int frames = inputDevice ? 1538 : 256;

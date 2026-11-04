@@ -28,3 +28,9 @@ g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ivalidacion/usb-callback/mock
 Para sanitizers, compilar ambos pasos también con `-fsanitize=address,undefined -fno-omit-frame-pointer`.
 
 Pendiente: enlace NDK/APK y pruebas Audio 10, Behringer y micrófono reales. Los datos simulados y la compilación no confirman la compatibilidad de ninguna tarjeta concreta.
+
+## Prueba posterior: captura USB en modo normal
+
+El siguiente registro real del Redmi / Audio 10 conserva `callbacksEntrada=0` y `recibidas=0` durante unos 82 segundos. No demuestra un fallo del anillo, ya que nunca entra un bloque de captura. `estadoEntrada=4` es el estado reportado por Oboe: en 1.9.0 AudioStreamAAudio::getState puede convertir STARTING a STARTED como workaround; no confirma por sí solo que el hardware haya comenzado a producir datos.
+
+Se cambia únicamente la solicitud de rendimiento de entrada USB a PerformanceMode::None; micrófono y salida conservan LowLatency. Continúan el mismo perfil Generic, formato float, sample rate, selección por ID y callback. Es una prueba de la ruta normal de captura, no una causa confirmada ni una garantía de corrección. La prueba Session con transporte simulado verifica estas tres selecciones de modo, además de los casos previos. Sintaxis verificada de nuevo con Oboe 1.9.0 real; pendiente hardware. Si sigue sin datos, hacen falta estados/configuración o registros del sistema de audio antes de atribuir el fallo al DSP o a los canales físicos.
