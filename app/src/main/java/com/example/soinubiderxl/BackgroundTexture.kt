@@ -1,9 +1,12 @@
 package com.example.soinubiderxl
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
@@ -20,6 +23,26 @@ fun Modifier.soinuBackground(palette: SoinuPalette): Modifier {
         return drawWithCache { onDrawBehind { drawRect(palette.background) } }
     }
     if (palette.texture == BackgroundTexture.GEOMETRIC) return geometricBackground()
+    // Misma imagen: levantar los tonos del pelo sin apagar los blancos.
+    val animal = palette.texture == BackgroundTexture.LEOPARD || palette.texture == BackgroundTexture.ZEBRA
+    val materialFilter = remember(palette.texture) {
+        val gain = when (palette.texture) {
+            BackgroundTexture.LEOPARD -> 3.2f
+            BackgroundTexture.ZEBRA -> 5f
+            else -> 1f
+        }
+        val offset = when (palette.texture) {
+            BackgroundTexture.LEOPARD -> -6f
+            BackgroundTexture.ZEBRA -> -16f
+            else -> 0f
+        }
+        if (!animal) null else ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+            gain, 0f, 0f, 0f, offset,
+            0f, gain, 0f, 0f, offset,
+            0f, 0f, gain, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        )))
+    }
     val atlas = ImageBitmap.imageResource(R.drawable.soinu_texture_atlas)
     val column = when (palette.texture) {
         BackgroundTexture.ZEBRA, BackgroundTexture.GEOMETRIC -> 1
@@ -48,9 +71,10 @@ fun Modifier.soinuBackground(palette: SoinuPalette): Modifier {
                 srcOffset = source,
                 srcSize = IntSize(cropWidth, cropHeight),
                 dstSize = destination,
-                filterQuality = FilterQuality.Medium
+                filterQuality = FilterQuality.Medium,
+                colorFilter = materialFilter
             )
-            drawRect(Color.Black.copy(alpha = .18f))
+            if (!animal) drawRect(Color.Black.copy(alpha = .18f))
         }
     }
 }

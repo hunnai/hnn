@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
@@ -82,7 +83,13 @@ class MainActivity : ComponentActivity() {
                 onBackground = palette.foreground,
                 onSurface = palette.foreground
             )) {
-                CompositionLocalProvider(LocalContentColor provides palette.foreground) {
+                val animalBackground = palette.texture == BackgroundTexture.LEOPARD || palette.texture == BackgroundTexture.ZEBRA
+                CompositionLocalProvider(
+                    LocalContentColor provides palette.foreground,
+                    LocalTextStyle provides LocalTextStyle.current.copy(
+                        shadow = if (animalBackground) Shadow(Color.Black, Offset(0f, 1f), 4f) else null
+                    )
+                ) {
                 val permission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { allowed ->
