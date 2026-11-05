@@ -262,12 +262,12 @@ paragraph('Abre esta pantalla con la rueda dentada.',35,104,W-70,10,13,MUTED)
 screen(35,136,234,True)
 paragraph('Los valores de la imagen son ejemplos.',39,670,226,9,12,MUTED)
 settings = [
-    ('A','Desfase actual', 'Ajuste del loop mantenido o del último que has puesto a sonar. <b>Usar valor actual</b> lo guarda.',154),
-    ('B','Desfase guardado', 'Se aplica a las próximas grabaciones. <b>Resetear valor</b> guarda 0 ms. No mueve los loops ya grabados.',252),
-    ('C','Rango BPM Auto', 'Limita la búsqueda de AUTO. Mínimo y máximo separados al menos <b>20 BPM</b>.',350),
-    ('D','Apariencia', 'Elige colores o texturas. Se aplica al momento; los LED mantienen sus colores.',440),
-    ('E','Transparencia', '<b>0 %:</b> opaco. <b>100 %:</b> transparente. Texto y bordes siguen visibles.',530),
-    ('F','Manual de instrucciones', 'Abre esta guía sin internet. Desliza para leer y pellizca para ampliar. Vuelve con <b>Volver</b> o <b>Atrás</b>.',625),
+    ('A','Desfase actual', 'Muestra, en milisegundos, cuánto se ha adelantado o retrasado el loop que está sonando o el último que has puesto a sonar. Si mantienes pulsado otro loop, muestra el valor de ese loop.',145),
+    ('B','Desfase guardado', 'El teléfono y la tarjeta de sonido pueden introducir un desfase que se repita entre grabaciones. Cuando hayas cuadrado un loop con la música, pulsa <b>Usar valor actual</b> para guardar su corrección y aplicarla a las siguientes grabaciones. <b>Resetear valor</b> vuelve a dejarla en <b>0 ms</b>, sin modificar los loops ya grabados.',250),
+    ('C','Rango BPM Auto', 'Limita la búsqueda de AUTO. Mínimo y máximo separados al menos <b>20 BPM</b>.',400),
+    ('D','Apariencia', 'Elige colores o texturas. Se aplica al momento; los LED mantienen sus colores.',485),
+    ('E','Transparencia', '<b>0 %:</b> opaco. <b>100 %:</b> transparente. Texto y bordes siguen visibles.',570),
+    ('F','Manual de instrucciones', 'Abre esta guía sin internet. Desliza para leer y pellizca para ampliar. Vuelve con <b>Volver</b> o <b>Atrás</b>.',665),
 ]
 for index,(letter,title,body,top) in enumerate(settings):
     end=callout(letter,title,body,top,x=320,width=239,size=10.2,leading=14)
