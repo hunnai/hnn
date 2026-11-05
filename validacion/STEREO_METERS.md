@@ -1,0 +1,11 @@
+# Medidores de entrada L y R
+
+La pantalla principal muestra dos filas de veinte LED, etiquetadas L (izquierda) y R (derecha). Ambas mantienen los umbrales y colores verde/ámbar/rojo previos y retienen clipping de forma independiente durante un segundo. Se reserva altura dentro del diseño existente, sin desplazar botones fuera del área desplazable.
+
+El callback de entrada mide el máximo absoluto finito por canal después de AutomaticInputRouter (primer par 1–2, con recuperación de ocho valores cuando corresponde) y antes del anillo. No se toma el máximo combinado del motor para simular estéreo. Dos acumuladores atómicos uint32 lock-free guardan el máximo hasta que el control lo recoge con exchange(0); no hay reservas, bloqueos ni logs de audio. Un micrófono mono se duplica a L/R porque esa es la entrada que entrega el router al motor.
+
+Snapshot conserva los índices 0–58 y añade 59=pico L y 60=pico R. NativeAudio.kt no necesita cambios: ya devuelve DoubleArray de longitud variable. El controlador mantiene envolventes separadas con caída .975 por consulta y publica la interfaz cada 50 ms. Reiniciar/detener la sesión limpia los máximos y las envolventes. Mantiene inputPeak combinado para compatibilidad; snapshots anteriores usan ese valor como fallback en ambos canales.
+
+El motor C, la señal grabada, los BPM, la selección de entrada y SYNC permanecen con el comportamiento anterior. MainActivity, SoinuState, SoinuController y SBAudioAndroid deben actualizarse juntos para disponer de medición L/R real. La guía incluida en assets también representa las dos filas.
+
+Validación: sintaxis C++17 con cabeceras oficiales Oboe/JNI; pruebas Session con transporte Oboe simulado y motor C real, ASan/UBSan. Nuevos casos de señal solo izquierda/solo derecha, recuperación del primer par ignorando otros seis canales con más nivel, mono duplicado, lectura/reset/reinicio, valores no finitos y consumo concurrente de máximos. Continúan pasando grabación/reproducción, clasificación automática normal/recuperación y fixture privado del usuario. Kotlin/Compose completo compila con bibliotecas Android/AndroidX y stub API35. PDF renderizado e inspeccionado, copia de assets idéntica. Pendiente APK y visualización real en el Redmi.

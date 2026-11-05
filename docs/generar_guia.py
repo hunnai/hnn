@@ -115,9 +115,12 @@ def screen(x, top, width, settings=False):
             a=j*pi/6;c.line(652+19*cos(a),1600-164+19*sin(a),652+29*cos(a),1600-164+29*sin(a))
         c.setFillColor(colors.HexColor('#B9B6B0'));c.circle(652,1600-164,23,fill=1,stroke=0)
         c.setFillColor(BG);c.circle(652,1600-164,10,fill=1,stroke=0)
-        for i in range(20):
-            color = '#41E77D' if i<10 else ('#183C2B' if i<14 else '#4B3A20' if i<17 else '#4E2731')
-            c.setFillColor(colors.HexColor(color));c.circle(40+i*33.6,1600-301,11.5,fill=1,stroke=0)
+        for row, channel in enumerate(['L','R']):
+            y=282+row*38
+            label(channel,25,y+8,24,bold=True)
+            for i in range(20):
+                color = '#41E77D' if i<(10 if row==0 else 8) else ('#183C2B' if i<14 else '#4B3A20' if i<17 else '#4E2731')
+                c.setFillColor(colors.HexColor(color));c.circle(69+i*31.7,1600-y,10.5,fill=1,stroke=0)
         c.setStrokeColor(colors.HexColor('#554D60'));c.setLineWidth(2)
         c.rect(24,1600-597,672,221,fill=0,stroke=1)
         rect(309, 356, 102, 38, BG, radius=0);label('BPM',360,390,29,True)
@@ -207,7 +210,7 @@ header('Controles y gestos',1)
 paragraph('Música → entrada 1–2 de la tarjeta → móvil (OTG). El audio se inicia al abrir.',
           35,104,W-70,10,13,MUTED)
 screen(35,136,184)
-paragraph('<b>LED:</b> nivel de entrada. Evita el rojo continuo.',39,551,180,8.9,10.5,MUTED)
+paragraph('<b>LED:</b> L = izquierda · R = derecha. Evita el rojo continuo.',39,551,180,8.9,10.5,MUTED)
 controls = [
     (1, 'Tempo', '<b>AUTO:</b> detecta el ritmo de la música.<br/><b>TAP:</b> marca al menos <b>8 pulsaciones</b>. Una pausa de más de 3 s reinicia la cuenta.', 136),
     (2, 'Grabar', 'Toca un botón vacío. Graba desde el siguiente pulso y se repite al terminar.<br/><b>1 beat = 1 pulso.</b>', 225),

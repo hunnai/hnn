@@ -130,7 +130,7 @@ private fun SoinuScreen(controller: SoinuController) {
             // la pantalla en teléfonos pequeños y orientación horizontal.
             val contentHeight = maxOf(maxHeight, 520.dp)
             val scale = (maxWidth.value / 320f).coerceIn(.8f, 1.6f)
-            val unit = (contentHeight - 84.dp) / 9.57f
+            val unit = (contentHeight - 84.dp) / 9.85f
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = touching.isEmpty())) {
                 Column(Modifier.fillMaxWidth().height(contentHeight).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -140,7 +140,7 @@ private fun SoinuScreen(controller: SoinuController) {
                             maxLines = 1, textAlign = TextAlign.Center)
                         GearButton { controller.cancelTouches(); touching = emptySet(); settings = true }
                     }
-                    InputMeter(state.inputPeak, Modifier.fillMaxWidth().height(unit * .52f))
+                    StereoInputMeter(state.inputPeakL, state.inputPeakR, Modifier.fillMaxWidth().height(unit * .8f))
                     TempoPanel(state, controller, unit * 1.8f, scale)
                     Row(Modifier.fillMaxWidth().height(unit), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionButton("Borrar beats", "erase", controller, Modifier.weight(1f).fillMaxHeight(), textScale = scale)
@@ -384,6 +384,21 @@ private fun ActionButton(label: String, kind: String, controller: SoinuControlle
 }
 
 @Composable
+private fun StereoInputMeter(left: Float, right: Float, modifier: Modifier) {
+    val palette = LocalSoinuPalette.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for ((label, level) in listOf("L" to left, "R" to right)) {
+            Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.width(16.dp), color = palette.foreground, fontSize = 10.sp, maxLines = 1)
+                InputMeter(level, Modifier.weight(1f).fillMaxHeight().semantics {
+                    contentDescription = if (label == "L") "Entrada izquierda" else "Entrada derecha"
+                })
+            }
+        }
+    }
+}
+
+@Composable
 private fun InputMeter(peak: Float, modifier: Modifier) {
     var clipping by remember { mutableStateOf(false) }
     LaunchedEffect(peak >= .999f) {
@@ -392,7 +407,8 @@ private fun InputMeter(peak: Float, modifier: Modifier) {
     Canvas(modifier) {
         val db = 20 * log10(max(peak.toDouble(), 1e-9))
         val thresholds = (0 until 14).map { -60 + 45 * it / 13.0 } + listOf(-12.0, -9.0, -6.0, -3.0, -1.0, -.01)
-        val cell = size.width / 20; val diameter = max(1f, min(20.dp.toPx(), cell - 5.dp.toPx()))
+        val cell = size.width / 20
+        val diameter = max(1f, minOf(20.dp.toPx(), cell - 5.dp.toPx(), size.height - 2.dp.toPx()))
         for (index in 0 until 20) {
             val lit = db >= thresholds[index] || (index == 19 && clipping)
             val color = when {

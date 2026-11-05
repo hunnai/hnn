@@ -211,7 +211,7 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
         if (handle != 0L) NativeAudio.stop(handle)
         pending.clear()
         waitSync()
-        state = state.copy(audioRunning = false, inputPeak = 0f, route = "Audio detenido")
+        state = state.copy(audioRunning = false, inputPeak = 0f, inputPeakL = 0f, inputPeakR = 0f, route = "Audio detenido")
     }
     // Se llama desde la pantalla, en Main. Toda consulta JNI termina antes de
     // abrir el selector de archivos, que puede detener la actividad y el audio.
@@ -292,6 +292,8 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                     var lastPublish = 0L
                     var lastDiagnostic = 0L
                     var meterPeak = state.inputPeak
+                    var meterL = state.inputPeakL
+                    var meterR = state.inputPeakR
                     try {
                         while (state.audioRunning && handle != 0L) {
                             val snapshot = NativeAudio.snapshot(handle)
@@ -316,6 +318,10 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                             if (result != null && result.generation == generation) latest = result
                             val now = System.nanoTime()
                             meterPeak = max(snapshot[2].toFloat(), meterPeak * .975f)
+                            val left = if (snapshot.size >= 61) snapshot[59].toFloat() else snapshot[2].toFloat()
+                            val right = if (snapshot.size >= 61) snapshot[60].toFloat() else snapshot[2].toFloat()
+                            meterL = max(left, meterL * .975f)
+                            meterR = max(right, meterR * .975f)
                             // Igual que iPhone: publica la interfaz cada 50 ms.
                             if (now - lastPublish >= 50_000_000L) {
                                 lastPublish = now
@@ -329,7 +335,8 @@ class SoinuController(application: Application) : AndroidViewModel(application) 
                                 val automatic = latest?.takeIf { it.generation == generation }
                                 val tempo = if (state.mode == TempoMode.AUTOMATIC && automatic != null)
                                     automatic.tempo else state.tempo
-                                state = state.copy(banks = banks, tempo = tempo, inputPeak = meterPeak)
+                                state = state.copy(banks = banks, tempo = tempo, inputPeak = meterPeak,
+                                    inputPeakL = meterL, inputPeakR = meterR)
                                 updateSync()
                                 updateAdvance()
                             }

@@ -1,6 +1,7 @@
 #include <cassert>
 #include <iostream>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <vector>
 #include "../../app/src/main/cpp/SBAudioAndroid.cpp"
@@ -291,7 +292,54 @@ static void decodeUploadedFixture(const char *path) {
     assert(found);
     std::cout<<"PASS uploaded raw fixture: automatic detection and cached recovery match exact validated first-pair samples, including fragmented groups\n";
 }
+static void testStereoMeters() {
+    InputPeak peak;
+    peak.add(.2f);peak.add(.8f);peak.add(.1f);
+    assert(peak.take()==.8f && peak.take()==0);
+    peak.add(std::numeric_limits<float>::quiet_NaN());
+    peak.add(std::numeric_limits<float>::infinity());peak.add(-1);
+    assert(peak.take()==0);
+    for(int kind : {0,1,8}) {
+        oboe::opened.clear();oboe::nativeUsbRate=48000;
+        auto session=std::make_unique<Session>();
+        session->configureInput(kind==8?8:0);
+        session->start(kind?266:0,kind?261:0,0);
+        std::vector<float> input(256*(kind==8?8:kind?2:1),.95f);
+        for(int frame=0;frame<256;++frame) {
+            const int stride=kind==8?8:kind?2:1;
+            input[frame*stride]=-.25f;
+            if(kind) input[frame*stride+1]=0;
+        }
+        session->receiveInput(input.data(),kind==8?1024:256,0);
+        auto snapshot=session->snapshot();
+        assert(snapshot.size()==61 && snapshot[59]==.25 && snapshot[60]==(kind?0:.25));
+        snapshot=session->snapshot();assert(snapshot[59]==0 && snapshot[60]==0);
+        for(int frame=0;frame<256;++frame) {
+            const int stride=kind==8?8:kind?2:1;
+            input[frame*stride]=0;
+            if(kind) input[frame*stride+1]=-.75f;
+        }
+        session->receiveInput(input.data(),kind==8?1024:256,.01);
+        snapshot=session->snapshot();
+        assert(snapshot[59]==0 && snapshot[60]==(kind?.75:0));
+        session->stop();session->start(kind?266:0,kind?261:0,0);
+        snapshot=session->snapshot();assert(snapshot[59]==0 && snapshot[60]==0);
+    }
+    std::atomic<bool> done{false};
+    std::thread producer([&] {
+        for(int i=0;i<100000;++i) peak.add(float(i%100+1)/100);
+        peak.add(1);done.store(true,std::memory_order_release);
+    });
+    float maximum=0;
+    while(!done.load(std::memory_order_acquire)) {
+        const float value=peak.take();assert(std::isfinite(value) && value>=0 && value<=1);
+        maximum=std::max(maximum,value);
+    }
+    producer.join();maximum=std::max(maximum,peak.take());assert(maximum==1);
+    std::cout<<"PASS L/R input meters: isolated left/right, mono duplication, recovered first pair, peak reset, restart and concurrent polling\n";
+}
 int main(int argc, char **argv) {
+    testStereoMeters();
     testRing(); testSession(266); testSession(0); testInputDiagnostic();
     testAutomaticRouting();
     testRecoverySession();

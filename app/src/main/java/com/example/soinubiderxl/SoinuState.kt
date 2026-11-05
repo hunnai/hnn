@@ -14,6 +14,8 @@ data class SoinuState(
     val tempo: TempoEstimate? = null,
     val banks: List<LoopBankState> = List(6) { LoopBankState() },
     val inputPeak: Float = 0f,
+    val inputPeakL: Float = 0f,
+    val inputPeakR: Float = 0f,
     val audioRunning: Boolean = false,
     val tapCount: Int = 0,
     val heldBank: Int? = null,

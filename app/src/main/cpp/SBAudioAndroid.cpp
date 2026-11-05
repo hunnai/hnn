@@ -20,6 +20,28 @@ void checked(oboe::Result result, const char *message) {
     if (result != oboe::Result::OK)
         throw std::runtime_error(std::string(message) + ": " + oboe::convertToText(result));
 }
+// Máximo desde la última lectura de control. IEEE float positivo mantiene
+// el orden al comparar sus bits; los atómicos uint32 son lock-free en Android.
+class InputPeak final {
+    std::atomic<uint32_t> bits{0};
+public:
+    void add(float value) {
+        if (!std::isfinite(value) || value <= 0) return;
+        uint32_t desired = 0;
+        std::memcpy(&desired, &value, sizeof(desired));
+        auto previous = bits.load(std::memory_order_relaxed);
+        while (previous < desired &&
+               !bits.compare_exchange_weak(previous, desired, std::memory_order_relaxed)) {}
+    }
+    float take() {
+        const auto value = bits.exchange(0, std::memory_order_relaxed);
+        float result = 0;
+        std::memcpy(&result, &value, sizeof(result));
+        return result;
+    }
+};
+static_assert(sizeof(float) == sizeof(uint32_t), "Input metering requires 32-bit floats");
+
 // Entrada y salida pueden usar callbacks de tamaños distintos.
 // Un productor (captura) y un consumidor (salida); nunca hay esperas ni reservas.
 class CaptureRing final {
@@ -204,6 +226,7 @@ class Session final : public oboe::AudioStreamDataCallback, public oboe::AudioSt
     SBEngine *engine = nullptr;
     CaptureRing capture;
     InputDiagnostic diagnostic;
+    InputPeak leftPeak, rightPeak;
     AutomaticInputRouter inputRouter;
     std::array<float, MAX_FRAMES * 2> selectedInput{};
     int layoutHint = -1;
@@ -220,6 +243,7 @@ public:
         if (output) { output->requestStop(); output->close(); output.reset(); }
         if (input) { input->requestStop(); input->close(); input.reset(); }
         diagnostic.clear();
+        leftPeak.take(); rightPeak.take();
     }
     void configureInput(int hint) {
         if (input || output) throw std::runtime_error("El audio debe estar detenido para configurar la entrada");
@@ -324,21 +348,28 @@ public:
         receivedFrames.fetch_add(static_cast<uint32_t>(frames), std::memory_order_relaxed);
         diagnostic.append(data, frames);
         bool active = false;
+        float peakL = 0, peakR = 0;
         for (int offset = 0; offset < frames;) {
             const int chunk = std::min(frames - offset, MAX_FRAMES);
             const uint32_t mapped = inputRouter.process(data + static_cast<size_t>(offset) * inputChannels,
                 chunk, requestedFrames.load(std::memory_order_relaxed), now, selectedInput.data());
             capture.push(selectedInput.data(), mapped, 2);
             deliveredFrames.fetch_add(mapped, std::memory_order_relaxed);
-            for (uint32_t i = 0; i < mapped * 2 && !active; ++i)
-                active = std::fabs(selectedInput[i]) > 1e-5f;
+            for (uint32_t i = 0; i < mapped; ++i) {
+                const float l = std::fabs(selectedInput[i * 2]);
+                const float r = std::fabs(selectedInput[i * 2 + 1]);
+                if (std::isfinite(l)) peakL = std::max(peakL, l);
+                if (std::isfinite(r)) peakR = std::max(peakR, r);
+            }
             offset += chunk;
         }
+        leftPeak.add(peakL); rightPeak.add(peakR);
+        active = peakL > 1e-5f || peakR > 1e-5f;
         if (active) activeReads.fetch_add(1, std::memory_order_relaxed);
     }
-    std::array<double, 59> snapshot() {
+    std::array<double, 61> snapshot() {
         // Los primeros 37 campos conservan su significado y orden.
-        std::array<double, 59> values{};
+        std::array<double, 61> values{};
         values[3] = error.load();
         values[37] = requestedInputDevice;
         values[38] = input ? input->getDeviceId() : 0;
@@ -362,6 +393,8 @@ public:
         values[56] = inputRouter.channels() != inputChannels ? inputRouter.channels() : 0;
         values[57] = 0;
         values[58] = inputRouter.ready() ? 1 : 0;
+        values[59] = leftPeak.take();
+        values[60] = rightPeak.take();
         if (!engine) return values;
         SBSnapshot header{}; SBBankSnapshot banks[6]{};
         SBEngineReadSnapshot(engine, &header, banks);
